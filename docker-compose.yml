@@ -1,11 +1,15 @@
 services:
   viralift:
     build: .
-    env_file:
-      # .env is optional: present it to enable the LLM alias review, or omit it
-      # entirely and the app still runs. required:false needs Docker Compose v2.24+.
-      - path: .env
-        required: false
+    # No .env needed to run. These default to LLM-off; Compose auto-substitutes
+    # from an optional .env in this folder (or your shell) if you set them.
+    # Works on all Compose versions (no env_file directive to require the file).
+    environment:
+      - VIRALIFT_LLM_ENABLED=${VIRALIFT_LLM_ENABLED:-0}
+      - VIRALIFT_LLM_MODEL=${VIRALIFT_LLM_MODEL:-gpt-5.4-mini}
+      - VIRALIFT_LLM_FALLBACK_MODEL=${VIRALIFT_LLM_FALLBACK_MODEL:-gpt-5.4}
+      - VIRALIFT_LLM_MAX_ROWS=${VIRALIFT_LLM_MAX_ROWS:-20}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
     ports:
       - "8501:8501"
     volumes:
