@@ -1,0 +1,33 @@
+{
+  "run_id": "20261006T044156Z_b5cfc35_docker_lifting_accuracy",
+  "started_utc": "20261006T044156Z",
+  "seconds": 21.8,
+  "environment": {
+    "commit": "b5cfc35",
+    "dirty": null,
+    "dirty_files": [],
+    "alias_configs": {
+      "fmdv_alias.json": "d5c40d6e7f64",
+      "porcine_epidemic_diarrhea_virus_alias.json": "30d4550171da",
+      "prrsv_alias.gold_frozen_20260725.json": "b695fab5569d",
+      "prrsv_alias.json": "78834b3f679c",
+      "virus_alias_registry.json": "5dca1ef4a5b0"
+    },
+    "python": "3.11.17",
+    "platform": "Linux-6.5.11-linuxkit-aarch64-with-glibc2.41",
+    "biopython": "1.88",
+    "tblastn": "tblastn: 2.16.0+",
+    "in_container": true
+  },
+  "label": "docker",
+  "task": "lifting_accuracy",
+  "engine": "viralift_tblastn",
+  "parameters": {
+    "min_coverage": 0.5,
+    "min_identity": 0.3,
+    "evalue": 1e-05,
+    "rescue_window": 200,
+    "iou_threshold": 0.9,
+    "bp_tolerance": 6
+  }
+}
