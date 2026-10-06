@@ -26,14 +26,18 @@ from validation.valkit.truth import build_truth_presence, parse_validation_truth
 
 def run_lifting_accuracy(virus_label: str, ref_path: Path, query_path: Path, output_dir: Path,
                          registry_path: Path = CONFIG / "virus_alias_registry.json",
-                         progress: bool = True):
+                         progress: bool = True, reverse_complement: bool = False):
     """One-call lifting-accuracy: run tblastn, build truth presence, per-gene + overall buckets.
 
     Returns (per_pred, per_gene, overall, truth_presence, ref_model). per_pred carries the
     diagnostic columns (pred_len, delta_start/end, pred_minus_ref_len, ...) for inspection.
+
+    reverse_complement=True lifts the reverse complement of every record and maps the
+    coordinates back, so the truth is unchanged: a strand-handling check on real data.
     """
     per_pred, _ = run_tblastn_against_truth(virus_label, ref_path, query_path, output_dir,
-                                            registry_path=registry_path, progress=progress)
+                                            registry_path=registry_path, progress=progress,
+                                            reverse_complement=reverse_complement)
     bundle = load_reference_bundle(ref_path, registry_path)
     records = load_genbank_records(query_path)
     ref_model, truth_presence = build_truth_presence(bundle, records, virus_label)
@@ -50,8 +54,10 @@ def run_tblastn_against_truth(
     output_dir: Path,
     registry_path: Path = CONFIG / "virus_alias_registry.json",
     progress: bool = True,
+    reverse_complement: bool = False,
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
     from tqdm.auto import tqdm
+    from Bio.SeqRecord import SeqRecord
 
     bundle = load_reference_bundle(ref_path, registry_path)
     query_records = load_genbank_records(query_path)
@@ -81,16 +87,27 @@ def run_tblastn_against_truth(
         # Force the tblastn engine on every record (this measures lifting quality,
         # not routing) but with the tool's default config, not incidental defaults.
         cfg = PipelineConfig()
+        target = record
+        if reverse_complement:
+            target = SeqRecord(record.seq.reverse_complement(), id=record.id, name=record.name,
+                               description=record.description)
         lifted = lift_all_tblastn(
             ref_features=bundle["features"],
             ref_record=bundle["record"],
-            query_record=record,
+            query_record=target,
             min_coverage=cfg.min_coverage,
             min_identity=cfg.min_identity,
             evalue=cfg.evalue,
             rescue_window=cfg.rescue_window,
             validate_codons=(bundle["feature_type"] == "CDS"),
         )
+        if reverse_complement:
+            # Map back onto the deposited orientation so the truth needs no change.
+            length = len(record.seq)
+            for lf in lifted:
+                if lf.query_start is not None and lf.query_end is not None:
+                    lf.query_start, lf.query_end = length - lf.query_end + 1, length - lf.query_start + 1
+                    lf.strand = {"+": "-", "-": "+"}.get(lf.strand, lf.strand)
         preds = lifted_to_rows(record.id, lifted, "tblastn")
         compared = compare_predictions_to_truth(preds, truth, codon_required_names=codon_required)
         compared.insert(0, "virus", virus_label)

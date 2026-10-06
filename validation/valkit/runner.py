@@ -27,7 +27,7 @@ import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Sequence
 
 from validation.valkit.paths import OUTPUTS, ROOT
 from validation.valkit.datasets import load_datasets
@@ -102,36 +102,77 @@ def environment_manifest() -> Dict:
     }
 
 
-def run_lifting_accuracy_task(datasets: Dict[str, Dict], out_dir: Path, progress: bool) -> Dict:
+def run_lifting_accuracy_task(datasets: Dict[str, Dict], out_dir: Path, progress: bool,
+                              axes: Sequence[str] = ("forward",)) -> Dict:
+    from app.src.io.genbank_parser import load_genbank_records
     from app.src.pipeline import PipelineConfig
+    from validation.valkit.attribution import (
+        accuracy_by_identity, attribute_cases, check_unscored_predictions, offset_tiers,
+    )
+    from validation.valkit.datasets import load_reference_bundle
     from validation.valkit.engines.viralift import run_lifting_accuracy
+    from validation.valkit.truth import parse_truth_features, ref_codon_checkable_genes
 
     cfg = PipelineConfig()
     result = {"task": "lifting_accuracy", "engine": "viralift_tblastn",
               "parameters": {"min_coverage": cfg.min_coverage, "min_identity": cfg.min_identity,
                              "evalue": cfg.evalue, "rescue_window": cfg.rescue_window,
-                             "iou_threshold": 0.90, "bp_tolerance": 6},
+                             "iou_threshold": 0.90, "bp_tolerance": 6, "axes": list(axes)},
               "datasets": {}}
-    for label, ds in datasets.items():
+    jobs = [(label, ds, axis) for label, ds in datasets.items() for axis in axes]
+    for base_label, ds, axis in jobs:
+        label = base_label if axis == "forward" else f"{base_label}_{axis}"
         t0 = time.time()
         ds_out = out_dir / label
         per_pred, per_gene, overall, truth_presence, ref_model = run_lifting_accuracy(
-            label, Path(ds["references"][0]), Path(ds["query"]), ds_out, progress=progress)
+            base_label, Path(ds["references"][0]), Path(ds["query"]), ds_out, progress=progress,
+            reverse_complement=(axis == "rc"))
+        # the runner labels rows by dataset+axis so tables of one run never collide
+        per_pred["virus"] = label
+        per_gene["virus"] = label
+        overall["virus"] = overall["virus"].replace({base_label: label})
+        # attach truth presence so every downstream table knows what is in the denominator
+        per_pred = per_pred.merge(
+            truth_presence.rename(columns={"gene": "ref_name"}), on=["record_id", "ref_name"], how="left")
         per_pred.to_csv(ds_out / "per_prediction.tsv", sep="\t", index=False)
         per_gene.to_csv(ds_out / "per_gene.tsv", sep="\t", index=False)
         overall.to_csv(ds_out / "overall.tsv", sep="\t", index=False)
         truth_presence.to_csv(ds_out / "truth_presence.tsv", sep="\t", index=False)
         ref_model.to_csv(ds_out / "ref_model.tsv", sep="\t", index=False)
-        # keep the legacy file names the old notebooks read, as well
+        # evidence-based attribution of every non-exact scored prediction, the strict
+        # offset tiers, accuracy by divergence, and a check of the unscored predictions
+        bundle = load_reference_bundle(Path(ds["references"][0]))
+        records = {r.id: r for r in load_genbank_records(Path(ds["query"]))}
+        codon_required = ref_codon_checkable_genes(bundle)
+        attributed = attribute_cases(per_pred, records, ds["feature_level"], codon_required)
+        attributed.to_csv(ds_out / "attribution.tsv", sep="\t", index=False)
+        all_truth = {
+            rid: parse_truth_features(rec, bundle["alias_lookup"], bundle["feature_type"], filter_nested=False)[0]
+            for rid, rec in records.items()
+        }
+        unscored = check_unscored_predictions(per_pred, all_truth)
+        unscored.to_csv(ds_out / "unscored_predictions.tsv", sep="\t", index=False)
+        tiers = offset_tiers(per_pred)
+        by_identity = accuracy_by_identity(per_pred)
+        attribution_summary = (
+            attributed.groupby(["bucket", "side", "category"]).size().reset_index(name="n").to_dict("records")
+            if not attributed.empty else []
+        )
+        unscored_summary = unscored["check"].value_counts().to_dict() if not unscored.empty else {}
+
         row = overall[overall["virus"] == label].iloc[0]
         result["datasets"][label] = {
-            "virus": ds["virus"], "feature_level": ds["feature_level"],
+            "virus": ds["virus"], "feature_level": ds["feature_level"], "axis": axis,
             "reference": Path(ds["references"][0]).name, "query": Path(ds["query"]).name,
             "records_scored": int(per_pred["record_id"].nunique()) if not per_pred.empty else 0,
             "truth_genes": int(row["total"]), "exact": int(row["exact"]),
             "coord_only": int(row["coord_only"]), "failed": int(row["failed"]),
             "no_hit": int(row["no_hit"]),
             "exact_pct": float(row["exact_pct"]), "accuracy_pct": float(row["accuracy_pct"]),
+            "offset_tiers": tiers,
+            "accuracy_by_identity": by_identity,
+            "attribution": attribution_summary,
+            "unscored_predictions": {"n": int(len(unscored)), **{str(k): int(v) for k, v in unscored_summary.items()}},
             "seconds": round(time.time() - t0, 1),
             "per_gene": {
                 g["gene"]: {"total": int(g["total"]), "exact": int(g["exact"]), "coord_only": int(g["coord_only"]),
@@ -173,8 +214,14 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--datasets", default="prrs,fmd,ped", help="Comma-separated labels from configs/datasets.json")
     parser.add_argument("--label", default="local", help="Environment tag for the run id, e.g. local or docker")
     parser.add_argument("--out", default=str(OUTPUTS), help="Output root (default validation/outputs)")
+    parser.add_argument("--axes", default="forward",
+                        help="Comma-separated: forward (deposited orientation), rc (lift the reverse "
+                             "complement and map coordinates back). Default: forward")
     parser.add_argument("--no-progress", action="store_true")
     args = parser.parse_args(argv)
+    axes = tuple(a.strip() for a in args.axes.split(",") if a.strip())
+    if any(a not in ("forward", "rc") for a in axes):
+        raise SystemExit(f"unknown axis in {args.axes!r}; use forward and/or rc")
 
     all_datasets = load_datasets()
     chosen = {}
@@ -196,7 +243,7 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     started = time.time()
     if args.task == "lifting_accuracy":
-        result = run_lifting_accuracy_task(chosen, out_dir, progress=not args.no_progress)
+        result = run_lifting_accuracy_task(chosen, out_dir, progress=not args.no_progress, axes=axes)
     else:
         result = run_pipeline_end_to_end_task(chosen, out_dir, progress=not args.no_progress)
 
