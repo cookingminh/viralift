@@ -1,0 +1,22 @@
+{
+  "_comment": "Engines the suite can score. `adapter` is a module under validation/valkit/engines. `requires` lists executables that must be on PATH.",
+  "engines": {
+    "viralift_tblastn": {
+      "adapter": "viralift",
+      "description": "ViraLift production lift: lift_all_tblastn forced on every record, PipelineConfig defaults.",
+      "requires": ["tblastn"],
+      "production": true
+    },
+    "viralift_pipeline": {
+      "adapter": "viralift",
+      "description": "The shipped pipeline including routing (direct vs tblastn).",
+      "requires": ["tblastn"],
+      "production": true
+    },
+    "minimap2": {"adapter": "minimap", "description": "Nucleotide lifting via minimap2 (unit 04). Adapter not migrated yet.", "requires": ["minimap2"], "production": false},
+    "liftoff": {"adapter": "liftoff", "description": "Liftoff (unit 05). Adapter not migrated yet.", "requires": ["liftoff", "minimap2"], "production": false},
+    "lifton": {"adapter": "lifton", "description": "LiftOn (unit 05). Adapter not migrated yet.", "requires": ["lifton"], "production": false},
+    "gatu": {"adapter": "gatu", "description": "GATU, run by hand (unit 05). Adapter not migrated yet.", "requires": [], "production": false},
+    "vapid": {"adapter": "vapid", "description": "VAPiD (unit 05). Adapter not migrated yet.", "requires": ["mafft"], "production": false}
+  }
+}

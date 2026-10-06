@@ -18,23 +18,26 @@ logs/*.log.*
 *.mmi
 app/data/*
 app/config/backups/
-# Validation notebooks and run artifacts are local; lightweight docs stay tracked.
-app/validation/**
-!app/validation/**/
-!app/validation/**/README.md
-!app/validation/NOTEBOOK_MANIFEST.tsv
-!app/validation/**/*.ipynb
-# Harness code and design docs are source, not run artifacts -> keep tracked.
-!app/validation/**/*.py
-!app/validation/**/*.md
-# Validation run artifacts
-app/validation/**/outputs*/
-app/validation/**/*outputs*/
-!app/validation/**/outputs*/.gitkeep
-!app/validation/**/*outputs*/.gitkeep
-app/validation/**/.ipynb_checkpoints/
-app/validation/**/__pycache__/
-app/validation/**/*.pyc
+# Validation suite (validation/): notebooks, harness code, configs and docs are
+# tracked; run artifacts are not, except the summary of the latest run.
+validation/**
+!validation/**/
+!validation/**/README.md
+!validation/NOTEBOOK_MANIFEST.tsv
+!validation/**/*.ipynb
+!validation/**/*.py
+!validation/**/*.md
+!validation/**/*.json
+!validation/**/*.txt
+validation/units/**/outputs*/
+validation/units/**/*outputs*/
+!validation/units/**/outputs*/.gitkeep
+!validation/units/**/*outputs*/.gitkeep
+validation/outputs/*
+!validation/outputs/latest/
+validation/**/.ipynb_checkpoints/
+validation/**/__pycache__/
+validation/**/*.pyc
 # Note: app/src/tests/ is intentionally tracked so unit tests are version-controlled.
 
 aegis_trial/

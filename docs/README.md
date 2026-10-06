@@ -9,7 +9,7 @@ Thư mục này chứa **ghi chú nội bộ** phục vụ bài báo Q1 và vi�
 | File | Nội dung |
 |---|---|
 | `VIRALIFT_PAPER_OUTLINE.md` (nằm ở thư mục cha `Phase_2/`, ngoài repo) | Outline bài Q1: framing, novelty, cấu trúc mục, asset dùng cho từng phần |
-| [REBUILD_PLAN.md](REBUILD_PLAN.md) | Kế hoạch dựng lại notebook validation cho paper (mapping notebook → figure/table). Index notebook chuẩn: `app/validation/README.md` |
+| [REBUILD_PLAN.md](REBUILD_PLAN.md) | Kế hoạch dựng lại notebook validation cho paper (mapping notebook → figure/table). Index notebook chuẩn: `validation/units/README.md` |
 
 ## Kết quả validation
 

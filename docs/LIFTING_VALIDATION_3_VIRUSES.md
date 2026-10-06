@@ -1,7 +1,7 @@
 # Validation lifting accuracy — PRRSV, FMDV, PEDV
 
 Tài liệu tổng hợp kết quả validation của bước lifting/annotation trong ViraLift, chạy trên ba virus có
-cấu trúc genome khác nhau. Nguồn số liệu: `app/validation/02_lifting_accuracy/{prrsv,fmdv,pedv}_accuracy.ipynb`.
+cấu trúc genome khác nhau. Nguồn số liệu: `validation/units/02_lifting_accuracy/{prrsv,fmdv,pedv}_accuracy.ipynb`.
 
 ## Tóm tắt
 
