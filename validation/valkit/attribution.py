@@ -36,7 +36,7 @@ from validation.valkit.metrics import iou
 SIDES = ("tool", "annotation", "data", "convention", "undecided")
 MIN_N_RUN = 10            # N bases in the uncovered truth region to call a sequencing gap
 MIN_RECURRENCE = 3        # records sharing the same (gene, delta_start, delta_end) to call a convention
-GRANULARITY_FACTOR = 1.5  # truth longer than this x ref_len and covering other genes' predictions
+GRANULARITY_FACTOR = 1.3  # truth longer than this x ref_len AND covering another gene's prediction
 
 
 def _span_seq(record: SeqRecord, start, end, strand) -> Optional[str]:
@@ -51,6 +51,20 @@ def _span_seq(record: SeqRecord, start, end, strand) -> Optional[str]:
 def _cds_valid(record: SeqRecord, start, end, strand) -> Optional[bool]:
     seq = _span_seq(record, start, end, strand)
     return None if seq is None else bool(validate_cds_boundaries(seq)["valid"])
+
+
+def _frame_ok(record: SeqRecord, start, end, strand) -> Optional[bool]:
+    """
+    Structural check that does not depend on the start codon: in frame, ends on a
+    stop, no internal stop. A span can fail this only by being wrong; a span that
+    passes it but lacks ATG may be a frameshift product or an alternative start,
+    which is a convention question, not an error.
+    """
+    seq = _span_seq(record, start, end, strand)
+    if seq is None:
+        return None
+    v = validate_cds_boundaries(seq)
+    return bool(v["in_frame"] and v["has_stop_codon"] and not v["has_internal_stop"])
 
 
 def _n_in_uncovered_truth(record: SeqRecord, ps, pe, ts, te) -> int:
@@ -130,12 +144,15 @@ def attribute_cases(
             "truth_len_eq_ref": bool(r.get("truth_minus_ref_len") == 0),
             "n_in_uncovered_truth": _n_in_uncovered_truth(record, ps, pe, ts, te) if record is not None else None,
             "truth_cds_valid": None, "pred_cds_valid": None,
+            "truth_frame_ok": None, "pred_frame_ok": None,
             "truth_matches_other_pred": None, "truth_matches_other_iou": None,
             "truth_covers_other_preds": None,
         }
         if feature_level == "CDS" and record is not None and gene in codon_required:
             ev["truth_cds_valid"] = _cds_valid(record, ts, te, strand)
             ev["pred_cds_valid"] = _cds_valid(record, ps, pe, strand) if lifted else None
+            ev["truth_frame_ok"] = _frame_ok(record, ts, te, strand)
+            ev["pred_frame_ok"] = _frame_ok(record, ps, pe, strand) if lifted else None
 
         others = preds_by_record.get(r["record_id"])
         if others is not None and ts is not None and not pd.isna(ts):
@@ -154,29 +171,42 @@ def attribute_cases(
 
         # --- verdict (first rule that fires) ----------------------------------
         own_iou = float(r.get("iou") or 0.0)
+        other_iou = ev["truth_matches_other_iou"] or 0.0
+        ref_len = r.get("ref_len") or 0
         if not lifted:
             side, cat, why = "tool", "no_hit", "no usable tblastn hit; truth feature exists"
-        elif ev["truth_covers_other_preds"] and (r.get("truth_minus_ref_len") or 0) > (GRANULARITY_FACTOR - 1) * (r.get("ref_len") or 0):
-            side, cat = "annotation", "granularity"
-            why = (f"truth span ({int(ts)}-{int(te)}) covers this record's predictions for "
-                   f"{ev['truth_covers_other_preds']} as well; it is a merged feature labelled {gene}")
-        elif own_iou < 0.5 and (ev["truth_matches_other_iou"] or 0) >= 0.9:
+        elif own_iou < 0.5 and other_iou >= 0.9:
             side, cat = "annotation", "label_swap"
             why = (f"truth span coincides with this record's {ev['truth_matches_other_pred']} prediction "
-                   f"(IoU {ev['truth_matches_other_iou']}) and not with {gene} (IoU {own_iou:.3f})")
-        elif ev["truth_cds_valid"] is False and ev["pred_cds_valid"]:
+                   f"(IoU {other_iou}) and not with {gene} (IoU {own_iou:.3f}): the gene is mislabelled")
+        elif ev["truth_covers_other_preds"] and (r.get("truth_len") or 0) > GRANULARITY_FACTOR * ref_len:
+            side, cat = "annotation", "granularity"
+            why = (f"truth span ({int(ts)}-{int(te)}, {int(r['truth_len'])} nt vs reference {int(ref_len)} nt) also covers "
+                   f"this record's prediction(s) for {ev['truth_covers_other_preds']}: a merged feature labelled {gene}")
+        elif ev["truth_frame_ok"] is False and ev["pred_frame_ok"]:
             side, cat = "annotation", "truth_not_valid_cds"
-            why = f"the annotated span {int(ts)}-{int(te)} is not a valid CDS on this sequence; the prediction is"
+            why = (f"the annotated span {int(ts)}-{int(te)} is out of frame, lacks a stop or has an internal stop on "
+                   f"this sequence; the prediction is a clean reading frame")
         elif (ev["n_in_uncovered_truth"] or 0) >= MIN_N_RUN:
             side, cat = "data", "sequencing_gap"
             why = f"{ev['n_in_uncovered_truth']} N bases in the part of the truth the lift did not cover"
         elif ev["pred_cds_valid"] is False:
             side, cat = "tool", "pred_not_valid_cds"
-            why = f"prediction {int(ps)}-{int(pe)} is not a valid CDS (truth span valid: {ev['truth_cds_valid']})"
+            why = (f"prediction {int(ps)}-{int(pe)} is not a valid CDS "
+                   f"(frame/stop ok: {ev['pred_frame_ok']}; annotated span valid: {ev['truth_cds_valid']})")
         elif ev["pred_len_eq_ref"] and ev["offset_recurrence"] >= MIN_RECURRENCE:
             side, cat = "convention", "convention_offset"
             why = (f"lift reproduces the reference boundary exactly; the same offset "
                    f"(start {r['delta_start']:+.0f}, end {r['delta_end']:+.0f}) recurs in {ev['offset_recurrence']} records")
+        elif ev["offset_recurrence"] >= MIN_RECURRENCE:
+            side, cat = "undecided", "recurring_offset"
+            why = (f"the same offset (start {r['delta_start']:+.0f}, end {r['delta_end']:+.0f}) recurs in "
+                   f"{ev['offset_recurrence']} records but the prediction is not reference-length "
+                   f"(pred-ref {r['pred_minus_ref_len']:+.0f} nt): convention likely, not proven")
+        elif ev["truth_frame_ok"] and ev["truth_cds_valid"] is False and r["delta_end"] == 0:
+            side, cat = "undecided", "start_convention"
+            why = (f"annotation starts {-r['delta_start']:+.0f} nt from the lift on a non-ATG codon "
+                   f"(frameshift product or alternative start); frame and stop agree; sequence cannot decide")
         elif ev["truth_cds_valid"] and ev["pred_cds_valid"] and r["delta_end"] == 0 and r["delta_start"] != 0:
             side, cat = "undecided", "alternative_start"
             why = (f"both spans are valid CDS sharing the stop; the lift starts {r['delta_start']:+.0f} nt from the "
@@ -254,6 +284,8 @@ def check_unscored_predictions(per_pred: pd.DataFrame, all_truth_by_record: Dict
                                  shares its start or its end (e.g. ORF1a inside an ORF1ab)
         matches_other_name       IoU >= 0.9 with a truth feature of another name (the
                                  record names this gene differently)
+        nested_in_annotated      the prediction lies inside an annotated gene of another name
+                                 (an overlapping ORF the record does not annotate separately)
         partial_overlap          some overlap, nothing conclusive
         no_overlap               nothing annotated there
     """
@@ -266,6 +298,7 @@ def check_unscored_predictions(per_pred: pd.DataFrame, all_truth_by_record: Dict
         verdict, partner, score = "no_overlap", None, 0.0
         if r.pred_start is not None and not pd.isna(r.pred_start):
             ps, pe = int(r.pred_start), int(r.pred_end)
+            nested = None
             for t in truths:
                 s = iou(ps, pe, t["start"], t["end"])
                 if s > score:
@@ -273,9 +306,14 @@ def check_unscored_predictions(per_pred: pd.DataFrame, all_truth_by_record: Dict
                 if t["start"] <= ps and t["end"] >= pe and (t["start"] == ps or t["end"] == pe):
                     verdict, partner, score = "consistent_with_merged", t["name"], s
                     break
+                if t["start"] <= ps and t["end"] >= pe:
+                    nested = t["name"]
             else:
                 if score >= 0.9:
                     verdict = "matches_other_name"
+                elif nested:
+                    # e.g. ORF2b lying inside an annotated ORF2a in a record that does not annotate ORF2b
+                    verdict, partner = "nested_in_annotated", nested
                 elif score > 0:
                     verdict = "partial_overlap"
         else:

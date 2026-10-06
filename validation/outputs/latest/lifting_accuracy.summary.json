@@ -1,7 +1,7 @@
 {
-  "run_id": "20261006T044156Z_b5cfc35_docker_lifting_accuracy",
+  "run_id": "20261006T071356Z_50336f7_docker_lifting_accuracy",
   "task": "lifting_accuracy",
-  "commit": "b5cfc35",
+  "commit": "50336f7",
   "dirty": null,
   "label": "docker",
   "tblastn": "tblastn: 2.16.0+",
@@ -18,6 +18,7 @@
     "prrs": {
       "virus": "PRRSV",
       "feature_level": "CDS",
+      "axis": "forward",
       "reference": "PRRS_ref_test.gb",
       "query": "PRRS_100seq_anno.gb",
       "records_scored": 100,
@@ -28,7 +29,236 @@
       "no_hit": 0,
       "exact_pct": 88.69,
       "accuracy_pct": 99.75,
-      "seconds": 7.3,
+      "offset_tiers": {
+        "exact": 706,
+        "1-3_bp": 32,
+        "4-6_bp": 12,
+        "7-30_bp": 43,
+        "over_30_bp": 3,
+        "not_lifted": 0
+      },
+      "accuracy_by_identity": [
+        {
+          "identity_bin": "<85",
+          "records": 4,
+          "pairs": 35,
+          "exact": 31,
+          "coord_correct": 35,
+          "accuracy_pct": 100.0
+        },
+        {
+          "identity_bin": "85-95",
+          "records": 76,
+          "pairs": 604,
+          "exact": 534,
+          "coord_correct": 604,
+          "accuracy_pct": 100.0
+        },
+        {
+          "identity_bin": ">=95",
+          "records": 20,
+          "pairs": 157,
+          "exact": 141,
+          "coord_correct": 155,
+          "accuracy_pct": 98.73
+        }
+      ],
+      "attribution": [
+        {
+          "bucket": "coord_only",
+          "side": "annotation",
+          "category": "truth_not_valid_cds",
+          "n": 1
+        },
+        {
+          "bucket": "coord_only",
+          "side": "convention",
+          "category": "convention_offset",
+          "n": 82
+        },
+        {
+          "bucket": "coord_only",
+          "side": "undecided",
+          "category": "recurring_offset",
+          "n": 2
+        },
+        {
+          "bucket": "coord_only",
+          "side": "undecided",
+          "category": "reference_vs_record_boundary",
+          "n": 3
+        },
+        {
+          "bucket": "failed",
+          "side": "annotation",
+          "category": "label_swap",
+          "n": 2
+        }
+      ],
+      "unscored_predictions": {
+        "n": 104,
+        "nested_in_annotated": 51,
+        "consistent_with_merged": 50,
+        "partial_overlap": 1,
+        "no_overlap": 1,
+        "matches_other_name": 1
+      },
+      "seconds": 7.5,
+      "per_gene": {
+        "ORF1a": {
+          "total": 62,
+          "exact": 61,
+          "coord_only": 1,
+          "failed": 0,
+          "accuracy_pct": 100.0
+        },
+        "ORF1b": {
+          "total": 88,
+          "exact": 0,
+          "coord_only": 87,
+          "failed": 1,
+          "accuracy_pct": 98.86
+        },
+        "ORF2a": {
+          "total": 100,
+          "exact": 100,
+          "coord_only": 0,
+          "failed": 0,
+          "accuracy_pct": 100.0
+        },
+        "ORF2b": {
+          "total": 49,
+          "exact": 48,
+          "coord_only": 0,
+          "failed": 1,
+          "accuracy_pct": 97.96
+        },
+        "ORF3": {
+          "total": 100,
+          "exact": 100,
+          "coord_only": 0,
+          "failed": 0,
+          "accuracy_pct": 100.0
+        },
+        "ORF4": {
+          "total": 100,
+          "exact": 100,
+          "coord_only": 0,
+          "failed": 0,
+          "accuracy_pct": 100.0
+        },
+        "ORF5": {
+          "total": 99,
+          "exact": 99,
+          "coord_only": 0,
+          "failed": 0,
+          "accuracy_pct": 100.0
+        },
+        "ORF6": {
+          "total": 99,
+          "exact": 99,
+          "coord_only": 0,
+          "failed": 0,
+          "accuracy_pct": 100.0
+        },
+        "ORF7": {
+          "total": 99,
+          "exact": 99,
+          "coord_only": 0,
+          "failed": 0,
+          "accuracy_pct": 100.0
+        }
+      }
+    },
+    "prrs_rc": {
+      "virus": "PRRSV",
+      "feature_level": "CDS",
+      "axis": "rc",
+      "reference": "PRRS_ref_test.gb",
+      "query": "PRRS_100seq_anno.gb",
+      "records_scored": 100,
+      "truth_genes": 796,
+      "exact": 706,
+      "coord_only": 88,
+      "failed": 2,
+      "no_hit": 0,
+      "exact_pct": 88.69,
+      "accuracy_pct": 99.75,
+      "offset_tiers": {
+        "exact": 706,
+        "1-3_bp": 32,
+        "4-6_bp": 12,
+        "7-30_bp": 43,
+        "over_30_bp": 3,
+        "not_lifted": 0
+      },
+      "accuracy_by_identity": [
+        {
+          "identity_bin": "<85",
+          "records": 4,
+          "pairs": 35,
+          "exact": 31,
+          "coord_correct": 35,
+          "accuracy_pct": 100.0
+        },
+        {
+          "identity_bin": "85-95",
+          "records": 76,
+          "pairs": 604,
+          "exact": 534,
+          "coord_correct": 604,
+          "accuracy_pct": 100.0
+        },
+        {
+          "identity_bin": ">=95",
+          "records": 20,
+          "pairs": 157,
+          "exact": 141,
+          "coord_correct": 155,
+          "accuracy_pct": 98.73
+        }
+      ],
+      "attribution": [
+        {
+          "bucket": "coord_only",
+          "side": "annotation",
+          "category": "truth_not_valid_cds",
+          "n": 1
+        },
+        {
+          "bucket": "coord_only",
+          "side": "convention",
+          "category": "convention_offset",
+          "n": 82
+        },
+        {
+          "bucket": "coord_only",
+          "side": "undecided",
+          "category": "recurring_offset",
+          "n": 2
+        },
+        {
+          "bucket": "coord_only",
+          "side": "undecided",
+          "category": "reference_vs_record_boundary",
+          "n": 3
+        },
+        {
+          "bucket": "failed",
+          "side": "annotation",
+          "category": "label_swap",
+          "n": 2
+        }
+      ],
+      "unscored_predictions": {
+        "n": 104,
+        "nested_in_annotated": 51,
+        "consistent_with_merged": 50,
+        "partial_overlap": 1,
+        "no_overlap": 1,
+        "matches_other_name": 1
+      },
+      "seconds": 7.4,
       "per_gene": {
         "ORF1a": {
           "total": 62,
@@ -98,6 +328,7 @@
     "fmd": {
       "virus": "FMDV",
       "feature_level": "mat_peptide",
+      "axis": "forward",
       "reference": "FMD_ref_test.gb",
       "query": "FMD_100seq_anno.gb",
       "records_scored": 98,
@@ -108,7 +339,73 @@
       "no_hit": 0,
       "exact_pct": 97.1,
       "accuracy_pct": 99.83,
-      "seconds": 6.8,
+      "offset_tiers": {
+        "exact": 1137,
+        "1-3_bp": 0,
+        "4-6_bp": 32,
+        "7-30_bp": 0,
+        "over_30_bp": 2,
+        "not_lifted": 0
+      },
+      "accuracy_by_identity": [
+        {
+          "identity_bin": "<85",
+          "records": 5,
+          "pairs": 60,
+          "exact": 58,
+          "coord_correct": 60,
+          "accuracy_pct": 100.0
+        },
+        {
+          "identity_bin": "85-95",
+          "records": 47,
+          "pairs": 560,
+          "exact": 545,
+          "coord_correct": 559,
+          "accuracy_pct": 99.82
+        },
+        {
+          "identity_bin": ">=95",
+          "records": 46,
+          "pairs": 551,
+          "exact": 534,
+          "coord_correct": 550,
+          "accuracy_pct": 99.82
+        }
+      ],
+      "attribution": [
+        {
+          "bucket": "coord_only",
+          "side": "convention",
+          "category": "convention_offset",
+          "n": 25
+        },
+        {
+          "bucket": "coord_only",
+          "side": "undecided",
+          "category": "recurring_offset",
+          "n": 7
+        },
+        {
+          "bucket": "failed",
+          "side": "annotation",
+          "category": "granularity",
+          "n": 1
+        },
+        {
+          "bucket": "failed",
+          "side": "data",
+          "category": "sequencing_gap",
+          "n": 1
+        }
+      ],
+      "unscored_predictions": {
+        "n": 5,
+        "no_overlap": 2,
+        "partial_overlap": 2,
+        "consistent_with_merged": 1
+      },
+      "seconds": 6.7,
       "per_gene": {
         "Lpro": {
           "total": 98,
@@ -196,9 +493,184 @@
         }
       }
     },
+    "fmd_rc": {
+      "virus": "FMDV",
+      "feature_level": "mat_peptide",
+      "axis": "rc",
+      "reference": "FMD_ref_test.gb",
+      "query": "FMD_100seq_anno.gb",
+      "records_scored": 98,
+      "truth_genes": 1171,
+      "exact": 1136,
+      "coord_only": 32,
+      "failed": 3,
+      "no_hit": 1,
+      "exact_pct": 97.01,
+      "accuracy_pct": 99.74,
+      "offset_tiers": {
+        "exact": 1136,
+        "1-3_bp": 0,
+        "4-6_bp": 32,
+        "7-30_bp": 0,
+        "over_30_bp": 2,
+        "not_lifted": 1
+      },
+      "accuracy_by_identity": [
+        {
+          "identity_bin": "<85",
+          "records": 5,
+          "pairs": 60,
+          "exact": 58,
+          "coord_correct": 60,
+          "accuracy_pct": 100.0
+        },
+        {
+          "identity_bin": "85-95",
+          "records": 47,
+          "pairs": 560,
+          "exact": 545,
+          "coord_correct": 559,
+          "accuracy_pct": 99.82
+        },
+        {
+          "identity_bin": ">=95",
+          "records": 46,
+          "pairs": 551,
+          "exact": 533,
+          "coord_correct": 549,
+          "accuracy_pct": 99.64
+        }
+      ],
+      "attribution": [
+        {
+          "bucket": "coord_only",
+          "side": "convention",
+          "category": "convention_offset",
+          "n": 25
+        },
+        {
+          "bucket": "coord_only",
+          "side": "undecided",
+          "category": "recurring_offset",
+          "n": 7
+        },
+        {
+          "bucket": "failed",
+          "side": "annotation",
+          "category": "granularity",
+          "n": 1
+        },
+        {
+          "bucket": "failed",
+          "side": "data",
+          "category": "sequencing_gap",
+          "n": 1
+        },
+        {
+          "bucket": "failed",
+          "side": "tool",
+          "category": "no_hit",
+          "n": 1
+        }
+      ],
+      "unscored_predictions": {
+        "n": 5,
+        "no_overlap": 2,
+        "partial_overlap": 2,
+        "consistent_with_merged": 1
+      },
+      "seconds": 6.7,
+      "per_gene": {
+        "Lpro": {
+          "total": 98,
+          "exact": 98,
+          "coord_only": 0,
+          "failed": 0,
+          "accuracy_pct": 100.0
+        },
+        "VP4": {
+          "total": 97,
+          "exact": 97,
+          "coord_only": 0,
+          "failed": 0,
+          "accuracy_pct": 100.0
+        },
+        "VP2": {
+          "total": 98,
+          "exact": 97,
+          "coord_only": 0,
+          "failed": 1,
+          "accuracy_pct": 98.98
+        },
+        "VP3": {
+          "total": 97,
+          "exact": 97,
+          "coord_only": 0,
+          "failed": 0,
+          "accuracy_pct": 100.0
+        },
+        "VP1": {
+          "total": 97,
+          "exact": 81,
+          "coord_only": 16,
+          "failed": 0,
+          "accuracy_pct": 100.0
+        },
+        "2A": {
+          "total": 98,
+          "exact": 81,
+          "coord_only": 16,
+          "failed": 1,
+          "accuracy_pct": 98.98
+        },
+        "2B": {
+          "total": 98,
+          "exact": 98,
+          "coord_only": 0,
+          "failed": 0,
+          "accuracy_pct": 100.0
+        },
+        "2C": {
+          "total": 98,
+          "exact": 98,
+          "coord_only": 0,
+          "failed": 0,
+          "accuracy_pct": 100.0
+        },
+        "3A": {
+          "total": 98,
+          "exact": 97,
+          "coord_only": 0,
+          "failed": 1,
+          "accuracy_pct": 98.98
+        },
+        "3B": {
+          "total": 96,
+          "exact": 96,
+          "coord_only": 0,
+          "failed": 0,
+          "accuracy_pct": 100.0
+        },
+        "3Cpro": {
+          "total": 98,
+          "exact": 98,
+          "coord_only": 0,
+          "failed": 0,
+          "accuracy_pct": 100.0
+        },
+        "3Dpol": {
+          "total": 98,
+          "exact": 98,
+          "coord_only": 0,
+          "failed": 0,
+          "accuracy_pct": 100.0
+        }
+      }
+    },
     "ped": {
       "virus": "PEDV",
       "feature_level": "CDS",
+      "axis": "forward",
       "reference": "PED_ref_1.gb",
       "query": "PED_100seqs.gb",
       "records_scored": 98,
@@ -209,7 +681,178 @@
       "no_hit": 0,
       "exact_pct": 99.01,
       "accuracy_pct": 99.8,
-      "seconds": 7.7,
+      "offset_tiers": {
+        "exact": 500,
+        "1-3_bp": 0,
+        "4-6_bp": 0,
+        "7-30_bp": 0,
+        "over_30_bp": 5,
+        "not_lifted": 0
+      },
+      "accuracy_by_identity": [
+        {
+          "identity_bin": "85-95",
+          "records": 1,
+          "pairs": 7,
+          "exact": 5,
+          "coord_correct": 7,
+          "accuracy_pct": 100.0
+        },
+        {
+          "identity_bin": ">=95",
+          "records": 97,
+          "pairs": 498,
+          "exact": 495,
+          "coord_correct": 497,
+          "accuracy_pct": 99.8
+        }
+      ],
+      "attribution": [
+        {
+          "bucket": "coord_only",
+          "side": "tool",
+          "category": "pred_not_valid_cds",
+          "n": 1
+        },
+        {
+          "bucket": "coord_only",
+          "side": "undecided",
+          "category": "start_convention",
+          "n": 3
+        },
+        {
+          "bucket": "failed",
+          "side": "annotation",
+          "category": "granularity",
+          "n": 1
+        }
+      ],
+      "unscored_predictions": {
+        "n": 181,
+        "consistent_with_merged": 166,
+        "no_overlap": 8,
+        "partial_overlap": 7
+      },
+      "seconds": 7.6,
+      "per_gene": {
+        "ORF1a": {
+          "total": 17,
+          "exact": 17,
+          "coord_only": 0,
+          "failed": 0,
+          "accuracy_pct": 100.0
+        },
+        "ORF1b": {
+          "total": 8,
+          "exact": 4,
+          "coord_only": 3,
+          "failed": 1,
+          "accuracy_pct": 87.5
+        },
+        "S": {
+          "total": 97,
+          "exact": 96,
+          "coord_only": 1,
+          "failed": 0,
+          "accuracy_pct": 100.0
+        },
+        "ORF3": {
+          "total": 92,
+          "exact": 92,
+          "coord_only": 0,
+          "failed": 0,
+          "accuracy_pct": 100.0
+        },
+        "E": {
+          "total": 97,
+          "exact": 97,
+          "coord_only": 0,
+          "failed": 0,
+          "accuracy_pct": 100.0
+        },
+        "M": {
+          "total": 97,
+          "exact": 97,
+          "coord_only": 0,
+          "failed": 0,
+          "accuracy_pct": 100.0
+        },
+        "N": {
+          "total": 97,
+          "exact": 97,
+          "coord_only": 0,
+          "failed": 0,
+          "accuracy_pct": 100.0
+        }
+      }
+    },
+    "ped_rc": {
+      "virus": "PEDV",
+      "feature_level": "CDS",
+      "axis": "rc",
+      "reference": "PED_ref_1.gb",
+      "query": "PED_100seqs.gb",
+      "records_scored": 98,
+      "truth_genes": 505,
+      "exact": 500,
+      "coord_only": 4,
+      "failed": 1,
+      "no_hit": 0,
+      "exact_pct": 99.01,
+      "accuracy_pct": 99.8,
+      "offset_tiers": {
+        "exact": 500,
+        "1-3_bp": 0,
+        "4-6_bp": 0,
+        "7-30_bp": 0,
+        "over_30_bp": 5,
+        "not_lifted": 0
+      },
+      "accuracy_by_identity": [
+        {
+          "identity_bin": "85-95",
+          "records": 1,
+          "pairs": 7,
+          "exact": 5,
+          "coord_correct": 7,
+          "accuracy_pct": 100.0
+        },
+        {
+          "identity_bin": ">=95",
+          "records": 97,
+          "pairs": 498,
+          "exact": 495,
+          "coord_correct": 497,
+          "accuracy_pct": 99.8
+        }
+      ],
+      "attribution": [
+        {
+          "bucket": "coord_only",
+          "side": "tool",
+          "category": "pred_not_valid_cds",
+          "n": 1
+        },
+        {
+          "bucket": "coord_only",
+          "side": "undecided",
+          "category": "start_convention",
+          "n": 3
+        },
+        {
+          "bucket": "failed",
+          "side": "annotation",
+          "category": "granularity",
+          "n": 1
+        }
+      ],
+      "unscored_predictions": {
+        "n": 181,
+        "consistent_with_merged": 166,
+        "no_overlap": 8,
+        "partial_overlap": 7
+      },
+      "seconds": 7.6,
       "per_gene": {
         "ORF1a": {
           "total": 17,
@@ -262,5 +905,6 @@
         }
       }
     }
-  }
+  },
+  "reattributed_at_commit": "50336f7"
 }

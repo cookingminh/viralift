@@ -1,9 +1,9 @@
 {
-  "run_id": "20261006T044156Z_b5cfc35_docker_lifting_accuracy",
-  "started_utc": "20261006T044156Z",
-  "seconds": 21.8,
+  "run_id": "20261006T071356Z_50336f7_docker_lifting_accuracy",
+  "started_utc": "20261006T071356Z",
+  "seconds": 43.4,
   "environment": {
-    "commit": "b5cfc35",
+    "commit": "50336f7",
     "dirty": null,
     "dirty_files": [],
     "alias_configs": {
@@ -28,6 +28,10 @@
     "evalue": 1e-05,
     "rescue_window": 200,
     "iou_threshold": 0.9,
-    "bp_tolerance": 6
+    "bp_tolerance": 6,
+    "axes": [
+      "forward",
+      "rc"
+    ]
   }
 }

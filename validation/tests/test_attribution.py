@@ -53,11 +53,18 @@ def test_granularity_when_truth_covers_two_predictions():
     assert "B" in out.loc["A", "truth_covers_other_preds"]
 
 
-def test_truth_not_valid_cds_is_blamed_on_the_annotation():
-    # annotated span starts 3 nt early (not an ATG), the prediction is the real CDS
+def test_truth_out_of_frame_is_blamed_on_the_annotation():
+    # annotated span ends 4 nt late: out of frame, no stop at the end -> structurally wrong
+    out = attribute([row("r1", "A", A_START, A_END, A_START, A_END + 4, LA, iou=0.96, coord_correct=True)])
+    assert out.loc["A", "category"] == "truth_not_valid_cds" and out.loc["A", "side"] == "annotation"
+    assert bool(out.loc["A", "truth_frame_ok"]) is False and bool(out.loc["A", "pred_frame_ok"]) is True
+
+
+def test_truth_without_atg_but_in_frame_is_a_start_convention_not_an_error():
+    # annotated span starts 3 nt early on a non-ATG codon but keeps frame and stop
+    # (how frameshift products such as ORF1b are annotated): undecided, not "annotation".
     out = attribute([row("r1", "A", A_START, A_END, A_START - 3, A_END, LA, iou=0.97, coord_correct=True)])
-    assert out.loc["A", "category"] == "truth_not_valid_cds"
-    assert bool(out.loc["A", "truth_cds_valid"]) is False and bool(out.loc["A", "pred_cds_valid"]) is True
+    assert out.loc["A", "category"] == "start_convention" and out.loc["A", "side"] == "undecided"
 
 
 def test_sequencing_gap_when_uncovered_truth_is_ns():
@@ -80,6 +87,21 @@ def test_recurring_offset_with_reference_length_is_a_convention():
     recs = {f"r{i}": REC["r1"] for i in range(1, 5)}
     out = attribute_cases(pd.DataFrame(rows), recs, "mat_peptide", []).set_index("record_id")
     assert set(out["category"]) == {"convention_offset"} and out["offset_recurrence"].min() == 4
+
+
+def test_recurring_offset_without_reference_length_stays_undecided():
+    rows = [row(f"r{i}", "A", A_START, A_END - 3, A_START - 3, A_END - 3, LA, iou=0.97, coord_correct=True) for i in range(1, 5)]
+    recs = {f"r{i}": REC["r1"] for i in range(1, 5)}
+    out = attribute_cases(pd.DataFrame(rows), recs, "mat_peptide", []).set_index("record_id")
+    assert set(out["category"]) == {"recurring_offset"} and set(out["side"]) == {"undecided"}
+
+
+def test_label_swap_wins_over_granularity_when_truth_equals_one_other_gene():
+    # truth of B == A's span exactly, and A's span is longer than 1.3 x ref B: this is a
+    # mislabel, not a merged feature
+    out = attribute([row("r1", "A", A_START, A_END, A_START, A_END, LA),
+                     row("r1", "B", B_START, B_END, A_START, A_END, LB, iou=0.0, coord_correct=False)])
+    assert out.loc["B", "category"] == "label_swap"
 
 
 def test_alternative_start_is_left_undecided():
@@ -112,3 +134,6 @@ def test_offset_tiers_and_unscored_check():
     merged = {"r3": [{"name": "AB", "start": A_START, "end": B_END}]}
     chk = check_unscored_predictions(unscored, merged)
     assert chk.loc[0, "check"] == "consistent_with_merged" and chk.loc[0, "annotated_as"] == "AB"
+    nested = pd.DataFrame([dict(row("r3", "B", B_START + 6, B_END - 6, 0, 0, LB), has_truth_gene=False)])
+    chk = check_unscored_predictions(nested, merged)
+    assert chk.loc[0, "check"] == "nested_in_annotated" and chk.loc[0, "annotated_as"] == "AB"

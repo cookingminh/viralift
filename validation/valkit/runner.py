@@ -32,7 +32,7 @@ from typing import Dict, List, Optional, Sequence
 from validation.valkit.paths import OUTPUTS, ROOT
 from validation.valkit.datasets import load_datasets
 
-TASKS = ("lifting_accuracy", "pipeline_end_to_end")
+TASKS = ("lifting_accuracy", "pipeline_end_to_end", "reattribute")
 
 
 def _cmd(args: List[str]) -> str:
@@ -186,6 +186,50 @@ def run_lifting_accuracy_task(datasets: Dict[str, Dict], out_dir: Path, progress
     return result
 
 
+def reattribute_run(run_dir: Path, datasets: Dict[str, Dict]) -> Dict:
+    """
+    Recompute attribution.tsv, unscored_predictions.tsv, offset tiers and identity bins
+    for an existing run from its per_prediction tables (no tblastn). Updates the
+    run's summary.json in place, so the attribution rules can be iterated on without
+    re-lifting, and the manifest keeps the lift's provenance.
+    """
+    from app.src.io.genbank_parser import load_genbank_records
+    from validation.valkit.attribution import (
+        accuracy_by_identity, attribute_cases, check_unscored_predictions, offset_tiers,
+    )
+    from validation.valkit.datasets import load_reference_bundle
+    from validation.valkit.truth import parse_truth_features, ref_codon_checkable_genes
+
+    import pandas as pd
+    summary_path = run_dir / "summary.json"
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    for label in list(summary["datasets"]):
+        base = label[:-3] if label.endswith("_rc") else label
+        ds = datasets.get(base)
+        if ds is None or not (run_dir / label / "per_prediction.tsv").exists():
+            continue
+        per_pred = pd.read_csv(run_dir / label / "per_prediction.tsv", sep="\t")
+        bundle = load_reference_bundle(Path(ds["references"][0]))
+        records = {r.id: r for r in load_genbank_records(Path(ds["query"]))}
+        attributed = attribute_cases(per_pred, records, ds["feature_level"], ref_codon_checkable_genes(bundle))
+        attributed.to_csv(run_dir / label / "attribution.tsv", sep="\t", index=False)
+        all_truth = {rid: parse_truth_features(rec, bundle["alias_lookup"], bundle["feature_type"], filter_nested=False)[0]
+                     for rid, rec in records.items()}
+        unscored = check_unscored_predictions(per_pred, all_truth)
+        unscored.to_csv(run_dir / label / "unscored_predictions.tsv", sep="\t", index=False)
+        entry = summary["datasets"][label]
+        entry["offset_tiers"] = offset_tiers(per_pred)
+        entry["accuracy_by_identity"] = accuracy_by_identity(per_pred)
+        entry["attribution"] = (attributed.groupby(["bucket", "side", "category"]).size().reset_index(name="n").to_dict("records")
+                                if not attributed.empty else [])
+        entry["unscored_predictions"] = {"n": int(len(unscored)),
+                                         **({str(k): int(v) for k, v in unscored["check"].value_counts().to_dict().items()} if len(unscored) else {})}
+        print(f"{label}: attribution {entry['attribution']}", flush=True)
+    summary["reattributed_at_commit"] = environment_manifest()["commit"]
+    summary_path.write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
+    return summary
+
+
 def run_pipeline_end_to_end_task(datasets: Dict[str, Dict], out_dir: Path, progress: bool) -> Dict:
     from validation.valkit.engines.viralift import run_production_pipeline_against_truth
     from validation.valkit.report import summarize_evaluable
@@ -217,6 +261,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--axes", default="forward",
                         help="Comma-separated: forward (deposited orientation), rc (lift the reverse "
                              "complement and map coordinates back). Default: forward")
+    parser.add_argument("--run", default=None, help="reattribute only: run id (folder name under --out) to recompute")
     parser.add_argument("--no-progress", action="store_true")
     args = parser.parse_args(argv)
     axes = tuple(a.strip() for a in args.axes.split(",") if a.strip())
@@ -234,6 +279,17 @@ def main(argv: Optional[List[str]] = None) -> int:
         if missing:
             raise SystemExit(f"dataset {label!r}: missing input file(s): {missing}")
         chosen[label] = ds
+
+    if args.task == "reattribute":
+        if not args.run:
+            raise SystemExit("reattribute needs --run <run_id>")
+        run_dir = Path(args.out) / args.run
+        summary = reattribute_run(run_dir, all_datasets)
+        latest = Path(args.out) / "latest"
+        latest.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(run_dir / "summary.json", latest / "lifting_accuracy.summary.json")
+        print(f"\nreattributed: {run_dir}")
+        return 0
 
     env = environment_manifest()
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")

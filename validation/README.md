@@ -41,9 +41,12 @@ docker compose --profile validation run --rm validation lifting_accuracy --label
 ```
 
 Each run writes `outputs/<time>_<commit>_<label>_lifting_accuracy/` with `manifest.json`
-(commit, Python, Biopython, tblastn version, parameters), `summary.json` (headline numbers,
-per gene) and per-dataset tables (`per_prediction.tsv`, `per_gene.tsv`, `overall.tsv`,
-`truth_presence.tsv`, `ref_model.tsv`). `outputs/latest/` keeps the newest summary.
+(commit, Python, Biopython, tblastn version, alias-config fingerprints, parameters),
+`summary.json` (headline numbers, per gene, offset tiers, accuracy by identity bin, attribution
+counts) and per-dataset tables (`per_prediction.tsv`, `per_gene.tsv`, `overall.tsv`,
+`truth_presence.tsv`, `ref_model.tsv`, `attribution.tsv`, `unscored_predictions.tsv`).
+`--axes forward,rc` also lifts the reverse complement of every record. `outputs/latest/` keeps
+the newest summary. `reattribute --run <run_id>` recomputes the attribution of an existing run.
 
 Compare two runs with `diff -r outputs/<run_a> outputs/<run_b>`.
 
@@ -70,7 +73,7 @@ to the data, and ends with an auto-generated summary.
 | `05_tool_comparison` | ViraLift vs Liftoff, LiftOn, GATU, VAPiD | legacy; external tools not installed here |
 | `06_run_tool_extract` | routing + ORF5 extraction on a mixed corpus | legacy |
 | `07_ablation_runtime` | what alias map, router and rescue each contribute | legacy |
-| `08_failure_attribution` | tool error vs annotation problem | legacy |
+| `08_failure_attribution` | tool error vs annotation problem, with evidence per case | **migrated**: `valkit/attribution.py` + `failure_attribution.ipynb` reading a run folder |
 | `09_recovery_unannotated` | annotating records with no annotation | legacy |
 | `10_pipeline_end_to_end` | the shipped pipeline, routing included | runner task `pipeline_end_to_end`; notebook legacy |
 
