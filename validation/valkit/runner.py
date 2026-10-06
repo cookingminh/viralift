@@ -59,17 +59,39 @@ def _config_fingerprints() -> Dict[str, str]:
     return out
 
 
+def _commit_from_dotgit() -> str:
+    """Short HEAD commit read from .git without a git binary (bind-mounted .git in the image)."""
+    dotgit = ROOT / ".git"
+    try:
+        head = (dotgit / "HEAD").read_text().strip()
+        if head.startswith("ref: "):
+            ref = head[5:]
+            ref_file = dotgit / ref
+            if ref_file.exists():
+                return ref_file.read_text().strip()[:7]
+            for line in (dotgit / "packed-refs").read_text().splitlines():
+                if line.endswith(" " + ref):
+                    return line.split()[0][:7]
+            return ""
+        return head[:7]
+    except OSError:
+        return ""
+
+
 def environment_manifest() -> Dict:
     import Bio
     tblastn = _cmd(["tblastn", "-version"]).splitlines()
     git = ["git", "-C", str(ROOT), "-c", f"safe.directory={ROOT}"]
-    commit = _cmd([*git, "rev-parse", "--short", "HEAD"]) or "unknown"
+    commit = _cmd([*git, "rev-parse", "--short", "HEAD"]) or _commit_from_dotgit() or "unknown"
     # In the container the working tree is a COPY of the host tree, so `git status`
     # compares the index with that copy: a modified config on the host shows as dirty.
-    dirty_files = _cmd([*git, "status", "--porcelain", "--", "app/config", "app/src", "validation"])
+    # Without a git binary (the slim image has none) dirtiness is unknown; the alias
+    # config fingerprints below are the reliable provenance in that case.
+    has_git = bool(_cmd(["git", "--version"]))
+    dirty_files = _cmd([*git, "status", "--porcelain", "--", "app/config", "app/src", "validation"]) if has_git else ""
     return {
         "commit": commit,
-        "dirty": bool(dirty_files),
+        "dirty": bool(dirty_files) if has_git else None,
         "dirty_files": sorted(line[3:] for line in dirty_files.splitlines()),
         "alias_configs": _config_fingerprints(),
         "python": platform.python_version(),
