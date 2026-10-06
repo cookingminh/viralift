@@ -42,12 +42,36 @@ def _cmd(args: List[str]) -> str:
         return ""
 
 
+def _config_fingerprints() -> Dict[str, str]:
+    """
+    sha256 (first 12 hex) of every alias config and the registry that this run used.
+
+    The alias config decides which annotation names count as truth, so the same
+    code on the same data gives a different denominator when the config differs.
+    The PRRSV denominator moved from 796 to 823 (record, gene) pairs after a UI
+    edit removed two aliases, which is why the fingerprint is part of the run id's
+    provenance.
+    """
+    import hashlib
+    out = {}
+    for path in sorted((ROOT / "app" / "config").glob("*.json")):
+        out[path.name] = hashlib.sha256(path.read_bytes()).hexdigest()[:12]
+    return out
+
+
 def environment_manifest() -> Dict:
     import Bio
     tblastn = _cmd(["tblastn", "-version"]).splitlines()
+    git = ["git", "-C", str(ROOT), "-c", f"safe.directory={ROOT}"]
+    commit = _cmd([*git, "rev-parse", "--short", "HEAD"]) or "unknown"
+    # In the container the working tree is a COPY of the host tree, so `git status`
+    # compares the index with that copy: a modified config on the host shows as dirty.
+    dirty_files = _cmd([*git, "status", "--porcelain", "--", "app/config", "app/src", "validation"])
     return {
-        "commit": _cmd(["git", "-C", str(ROOT), "rev-parse", "--short", "HEAD"]) or "unknown",
-        "dirty": bool(_cmd(["git", "-C", str(ROOT), "status", "--porcelain", "--", "app", "validation"])),
+        "commit": commit,
+        "dirty": bool(dirty_files),
+        "dirty_files": sorted(line[3:] for line in dirty_files.splitlines()),
+        "alias_configs": _config_fingerprints(),
         "python": platform.python_version(),
         "platform": platform.platform(),
         "biopython": Bio.__version__,
@@ -157,8 +181,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     manifest = {"run_id": run_id, "started_utc": stamp, "seconds": round(time.time() - started, 1),
                 "environment": env, "label": args.label, **{k: v for k, v in result.items() if k != "datasets"}}
     (out_dir / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
-    summary = {"run_id": run_id, "task": args.task, "commit": env["commit"], "label": args.label,
-               "tblastn": env["tblastn"], "python": env["python"], "biopython": env["biopython"],
+    summary = {"run_id": run_id, "task": args.task, "commit": env["commit"], "dirty": env["dirty"],
+               "label": args.label, "tblastn": env["tblastn"], "python": env["python"],
+               "biopython": env["biopython"], "alias_configs": env["alias_configs"],
                "datasets": result["datasets"]}
     (out_dir / "summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
 
