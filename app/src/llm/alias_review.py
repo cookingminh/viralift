@@ -155,6 +155,7 @@ def review_unresolved_names(
     config: Optional[LLMConfig] = None,
     provider=None,
     cache: Optional[Dict[str, Dict]] = None,
+    existing_aliases: Optional[Dict[str, List[str]]] = None,
 ) -> Tuple[Dict[str, Dict], Dict]:
     """
     Ask the optional LLM to suggest mappings for unresolved Name review rows.
@@ -170,6 +171,7 @@ def review_unresolved_names(
         unknown_items=unknown_items,
         ambiguous_items=ambiguous_items,
         excluded_names=list(excluded_names or []) + list(ignored_names or []),
+        existing_aliases=existing_aliases,
     )
     suggestions = payload.get("suggestions", [])[:config.max_rows]
     payload = {**payload, "suggestions": suggestions}

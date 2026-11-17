@@ -224,6 +224,7 @@ def build_unresolved_name_review_payload(
     unknown_items: Dict[str, Dict],
     ambiguous_items: Optional[Dict[str, Dict]] = None,
     excluded_names: Optional[List[str]] = None,
+    existing_aliases: Optional[Dict[str, List[str]]] = None,
 ) -> Dict:
     """
     Build a payload for LLM review of names that did not get coordinate-backed
@@ -252,7 +253,7 @@ def build_unresolved_name_review_payload(
             )
         )
 
-    return {
+    payload = {
         "task": "review_unresolved_names",
         "virus": virus_name,
         "available_canonicals": canonical_names,
@@ -295,10 +296,32 @@ def build_unresolved_name_review_payload(
             "candidate canonical; a large mismatch is evidence against save_alias. "
             "(5) When positional evidence and the name disagree, say so in reason and "
             "follow the position. When positional evidence is absent, fall back to the "
-            "name-based rules above and stay conservative."
+            "name-based rules above and stay conservative. "
+            # --- coordinate verdict (tblastn) ---------------------------------
+            "COORDINATE VERDICT. Rows may carry coordinate_verdict, from lifting the "
+            "reference proteins onto the query record with tblastn and comparing the "
+            "annotated span: 'match' = the span coincides with one reference gene "
+            "(ref_slot_by_position, coordinate_iou >= 0.9); 'spans' = it covers several "
+            "adjacent reference genes (spans_reference_genes), i.e. a precursor or "
+            "polyprotein region; 'inside' = it lies within one gene (is_subfeature_of); "
+            "'overlaps' = it only partly overlaps one gene; 'mixed' = the checked records "
+            "disagree. records_checked and records_agreeing give the support. A 'match' "
+            "settles which canonical the row is: recommend save_alias to that canonical "
+            "when the names are specific enough to become reusable aliases for it, or "
+            "ignore when they are too broad to reuse; the run follows the coordinates "
+            "either way. For 'spans', never recommend a single gene: recommend skip and "
+            "name the combined region in reason (for example P1 or VP0), unless an "
+            "available canonical represents exactly that span. "
+            "existing_aliases lists the aliases each canonical already has for this "
+            "virus; use it to recognise the virus's nomenclature (for example '1A' "
+            "already naming VP4). Base each reason only on fields present in the row "
+            "and quote no text that is not there."
         ),
         "suggestions": unresolved_rows,
     }
+    if existing_aliases:
+        payload["existing_aliases"] = existing_aliases
+    return payload
 
 
 # ---------------------------------------------------------------------
@@ -527,6 +550,13 @@ def _positional_evidence(info: Dict) -> Dict:
         "ref_slot_by_position": context.get("ref_slot_by_position"),
         "slot_candidates": context.get("slot_candidates") or None,
         "spans_reference_genes": context.get("spans_reference_genes") or None,
+        # Verdict from lifting the reference proteins onto the query record
+        # (ui/name_review.py): match / spans / inside / overlaps / mixed.
+        "coordinate_verdict": context.get("coordinate_verdict"),
+        "coordinate_iou": context.get("coordinate_iou"),
+        "overlaps_reference_gene": context.get("overlaps_reference_gene"),
+        "records_checked": context.get("records_checked"),
+        "records_agreeing": context.get("records_agreeing"),
     }
     return {key: value for key, value in evidence.items() if value is not None}
 
