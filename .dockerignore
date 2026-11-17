@@ -1,0 +1,29 @@
+# Build context for the Docker images. Only what a Dockerfile COPYs needs to be
+# here; everything else just slows `docker build` down (venv/ alone is ~1 GB).
+
+# local environments and secrets
+venv*/
+.venv/
+.env
+.claude/
+
+# version control and editor/OS noise
+.git/
+**/__pycache__/
+**/*.pyc
+**/.ipynb_checkpoints/
+.DS_Store
+.pytest_cache/
+
+# runtime state: bind-mounted by docker-compose, never baked into an image
+output/
+logs/
+app/data/
+app/config/backups/
+validation/outputs/
+
+# build artifacts and side projects
+build/
+dist/
+*.egg-info/
+aegis_trial/
