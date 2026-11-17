@@ -3,6 +3,7 @@ column, and the result tables must stay sortable."""
 from app.src.lifting.base import STATUS_META
 from ui.guide import (
     FEATURE_COLUMN_HELP,
+    GUIDE_STATUSES,
     PAGE_GUIDES,
     RECORD_COLUMN_HELP,
     STAGE_TOPICS,
@@ -11,13 +12,14 @@ from ui.guide import (
     _rich,
     _status_reference_html,
 )
-from ui.stages.results import FEATURE_COLUMNS, RECORD_COLUMNS, _identity_cell
+from ui.stages.results import FEATURE_COLUMNS, RECORD_COLUMNS, _identity_cell, _position_cell
 
 
 def test_every_status_is_explained():
-    assert set(STATUS_META) <= set(STATUS_GUIDE)
+    assert set(GUIDE_STATUSES) <= set(STATUS_GUIDE)
+    assert set(STATUS_META) < set(GUIDE_STATUSES)
     html = _status_reference_html()
-    for status in STATUS_META:
+    for status in GUIDE_STATUSES:
         assert _rich(STATUS_GUIDE[status]) in html
 
 
@@ -39,6 +41,12 @@ def test_identity_cells_sort_numerically_as_text():
     assert len({len(cell) for cell in cells}) == 1
     assert sorted(cells) == [_identity_cell(9.5), _identity_cell(47.4), _identity_cell(100.0)]
     assert _identity_cell(None) == ""
+
+
+def test_position_cells_sort_numerically_as_text():
+    cells = [_position_cell(value) for value in (12071, 190, 7701, 3)]
+    assert sorted(cells) == [_position_cell(v) for v in (3, 190, 7701, 12071)]
+    assert _position_cell(None) == ""
 
 
 def test_rich_text_escapes_before_adding_markup():

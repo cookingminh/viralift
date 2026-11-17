@@ -8,11 +8,15 @@ import streamlit as st
 from typing import Dict, List, Tuple
 from app.src.lifting.base import STATUS_META
 from ui.components import _status_badge, _status_label, _status_tone
+from ui.gene_presence import NOT_IN_SEQUENCE
 from ui.i18n import _t
 
 
 # (title, body) pairs rendered as a numbered list.
 Steps = List[Tuple[str, str]]
+
+# Engine statuses plus the one the results view derives for partial records.
+GUIDE_STATUSES = [*STATUS_META, NOT_IN_SEQUENCE]
 
 PAGE_GUIDES: Dict[str, Dict[str, object]] = {
     "setup": {
@@ -132,8 +136,13 @@ PAGE_GUIDES: Dict[str, Dict[str, object]] = {
         "steps": [
             ("Run health", (
                 "**Records**: query records processed (failures are listed below the tiles). "
-                "**Features**: gene rows found, split by method. **Pass rate**: share of features "
-                "with a passing status. **Needs review**: features to inspect before use."
+                "**Features**: genes inside the sequenced records. **Pass rate**: share of those "
+                "with a passing status. **Needs review**: genes to inspect before use."
+            )),
+            ("Partial records", (
+                "Many GenBank entries hold one gene or region, e.g. a VP1-only sequence. Genes that "
+                "fall outside such a record are marked **Not in sequence**: nothing to review, and "
+                "they are left out of the pass rate. A **No hit** inside the record is a real miss."
             )),
             ("Status bar", "The share of each status across all features. The colours match the table."),
             ("Features tab", (
@@ -141,8 +150,9 @@ PAGE_GUIDES: Dict[str, Dict[str, object]] = {
                 "Tick a row to see coordinates, boundary checks and the sequence."
             )),
             ("Records tab", (
-                "One row per query record with its overall health. Tick a record to list its genes "
-                "or read its error."
+                "One row per query record with its health: **Passed**, **Partial** (only part of "
+                "the genome, everything in it passed), **Needs review**, **No genes found** or "
+                "**Failed**. Tick a record to list its genes or read its error."
             )),
             ("Export tab", (
                 "TSV with every feature (display or raw source names), and FASTA per gene or combined, "
@@ -261,6 +271,10 @@ STATUS_GUIDE = {
     "unresolved_name": (
         "Direct: the annotated name is not in the alias config and was not mapped, so it keeps its raw name."
     ),
+    NOT_IN_SEQUENCE: (
+        "No hit, but the genes that were found place this one outside the record, which covers "
+        "only part of the genome (e.g. a VP1-only sequence). Shown in the app only; exports keep `no_hit`."
+    ),
 }
 
 TERMS = [
@@ -272,6 +286,7 @@ TERMS = [
     ("E-value", "How likely a hit this good is by chance. Lower is stricter."),
     ("Bit score", "Alignment strength reported by tblastn. Higher is better."),
     ("Rescue", "Moving a start or stop codon so the CDS has valid boundaries."),
+    ("Partial record", "A query record that covers only part of the reference genome, e.g. one gene."),
 ]
 
 # Shared by the table tooltips (column help) and the "How to read" popovers.
@@ -280,7 +295,7 @@ FEATURE_COLUMN_HELP = {
     "Gene": "Standard gene name, or the reference's own name if you chose that.",
     "Status": "Outcome for this gene; the colour shows its group.",
     "Method": "Direct: renamed from the record's annotation. tblastn: found with the reference protein.",
-    "Start": "First base on the query record, 1-based and inclusive (GenBank style).",
+    "Start": "First base on the query record, 1-based and inclusive (GenBank style). Blank when the gene was not found.",
     "End": "Last base. Start is the lower number on both strands.",
     "Length": "End − Start + 1, in nucleotides.",
     "Strand": "+ forward, − reverse complement.",
@@ -291,9 +306,14 @@ FEATURE_COLUMN_HELP = {
 
 RECORD_COLUMN_HELP = {
     "Record": "Query record (GenBank accession.version).",
-    "Health": "Passed, Needs review (a gene needs a look), Failed (the record errored) or Empty.",
-    "Features": "Gene rows returned for this record.",
-    "Pass rate": "Share of this record's genes with a passing status.",
+    "Health": (
+        "Passed; Partial (covers part of the genome, all of it passed); Needs review; "
+        "No genes found (none of the reference genes located); Failed (errored) or Empty."
+    ),
+    "Length": "Length of the query record in bases. Short records usually hold a single gene or region.",
+    "Features": "Reference genes reported for this record.",
+    "In sequence": "Genes that lie inside this record; the rest are Not in sequence.",
+    "Pass rate": "Share of the genes in sequence with a passing status.",
     "Needs review": "Genes in this record to inspect before use.",
     "Method": "Direct, tblastn, or both when only some genes were annotated.",
     "Error": "Why the record failed, if it did.",
@@ -345,7 +365,7 @@ def _legend_html() -> str:
     """One row per colour, listing the statuses that use it."""
     rows = []
     for tone, meaning in TONE_LEGEND:
-        statuses = [_status_label(status) for status in STATUS_META if _status_tone(status) == tone]
+        statuses = [_status_label(status) for status in GUIDE_STATUSES if _status_tone(status) == tone]
         rows.append(
             "<div class='vl-guide-legend-row'>"
             f"<span class='vl-badge tone-{tone}'>{html.escape(meaning)}</span>"
@@ -406,14 +426,20 @@ def _workflow_html() -> str:
     )
 
 
+def _counts_as(status: str) -> str:
+    if status == NOT_IN_SEQUENCE:
+        return "Not counted"
+    return "Passed" if STATUS_META[status].get("is_pass") else "Review"
+
+
 def _status_reference_html() -> str:
     rows = "".join(
         "<tr>"
         f"<td>{_status_badge(status)}</td>"
         f"<td>{_rich(STATUS_GUIDE.get(status, ''))}</td>"
-        f"<td class='vl-guide-group'>{'Passed' if meta.get('is_pass') else 'Review'}</td>"
+        f"<td class='vl-guide-group'>{_counts_as(status)}</td>"
         "</tr>"
-        for status, meta in STATUS_META.items()
+        for status in GUIDE_STATUSES
     )
     return (
         "<div class='vl-guide'>"

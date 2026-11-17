@@ -124,6 +124,17 @@ UI_TEXT = {
         "all_processed": "all processed",
         "passed_count": "{count} passed",
         "review_note": "boundary, coverage or no hit",
+        "not_in_sequence_note": "+{count} not in sequence",
+        "partial_records_banner": (
+            "<b>{partial} of {total} records are partial</b>: they cover only part of the "
+            "reference genome. Their {absent} genes outside the sequenced region are marked "
+            "<i>Not in sequence</i> and left out of the pass rate and review counts."
+        ),
+        "not_in_sequence_help": (
+            "tblastn found nothing for this gene, and the genes it did find place it outside "
+            "this record: the record covers only part of the genome. There is nothing to "
+            "review; the gene is left out of the pass rate."
+        ),
         "nothing_to_review": "nothing to review",
         "processing_error": "{count} query record(s) failed during processing. They are excluded from the pass rate and listed below.",
         "processing_errors": "Processing errors",
@@ -137,6 +148,8 @@ UI_TEXT = {
         "filter_review": "Needs review",
         "filter_passed": "Passed",
         "filter_other": "Other",
+        "filter_in_sequence": "In sequence",
+        "filter_absent": "Not in sequence",
         "filter_any_method": "Any method",
         "method_direct": "Direct",
         "method_tblastn": "tblastn",
@@ -156,6 +169,8 @@ UI_TEXT = {
         "all": "all",
         "failed": "Failed",
         "empty": "Empty",
+        "health_partial": "Partial",
+        "health_no_genes": "No genes found",
         "passed": "Passed",
         "no_features": "No features were returned for this record.",
         "invalid_boundary_help": (
@@ -210,5 +225,6 @@ UI_TEXT = {
         "status_unresolved_name": "Unresolved name",
         "status_ambiguous_name": "Excluded name",
         "status_not_in_reference": "Not in reference",
+        "status_not_in_sequence": "Not in sequence",
     },
 }
