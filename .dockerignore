@@ -20,6 +20,7 @@ output/
 logs/
 app/data/
 app/config/backups/
+app/config/references/
 validation/outputs/
 
 # build artifacts and side projects

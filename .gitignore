@@ -18,6 +18,7 @@ logs/*.log.*
 *.mmi
 app/data/*
 app/config/backups/
+app/config/references/
 # Validation suite (validation/): notebooks, harness code, configs and docs are
 # tracked; run artifacts are not, except the summary of the latest run.
 validation/**

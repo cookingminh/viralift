@@ -40,6 +40,10 @@ def _init_state():
         app_mode="Run pipeline",
         tmp=None,               # tempfile.TemporaryDirectory object
         ref_record=None,
+        ref_source_path=None,   # GenBank file the reference was loaded from
+        ref_saved_id=None,      # set when the reference came from the saved library
+        ref_suggested_for=None, # query file the saved-reference suggestion was applied to
+        query_virus_cache={},   # {query file key: (virus, matched, checked) or None}
         query_records=None,
         ref_features=None,
         use_ref_names=False,    # if True, output uses ref's raw names instead of alias keys

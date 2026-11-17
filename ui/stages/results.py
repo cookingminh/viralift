@@ -1,5 +1,11 @@
 # Step 3 · Results — run health, a filterable feature table with a detail panel,
 # a per-record view, and TSV / FASTA export.
+#
+# Partial query records (e.g. VP1-only sequences) are common in NCBI downloads.
+# Genes that fall outside such a record are shown as "Not in sequence"
+# (ui/gene_presence.py) and kept out of the pass rate and review counts; the
+# engine's own statuses, used by every export, are left untouched.
+import dataclasses
 import hashlib
 import html
 import pandas as pd
@@ -15,6 +21,7 @@ from ui.components import (
     _format_percent,
     _kv_html,
     _pill_column,
+    _render_callout,
     _render_page_intro,
     _render_section_title,
     _render_stats,
@@ -24,6 +31,7 @@ from ui.components import (
     _status_cell,
     _status_column,
 )
+from ui.gene_presence import NOT_IN_SEQUENCE, missing_genes_outside_record, nothing_located
 from ui.guide import FEATURE_COLUMN_HELP, RECORD_COLUMN_HELP, _open_guide, _render_table_help
 from ui.i18n import _t
 from ui.services import _canonical_to_ref_map, _results_to_df, _selected_dataframe_rows
@@ -45,9 +53,9 @@ FEATURE_COLUMNS = {
     "Gene": st.column_config.TextColumn("Gene", help=FEATURE_COLUMN_HELP["Gene"]),
     "Status": _status_column(FEATURE_COLUMN_HELP["Status"]),
     "Method": st.column_config.TextColumn("Method", width="small", help=FEATURE_COLUMN_HELP["Method"]),
-    "Start": st.column_config.NumberColumn("Start", format="%d", help=FEATURE_COLUMN_HELP["Start"]),
-    "End": st.column_config.NumberColumn("End", format="%d", help=FEATURE_COLUMN_HELP["End"]),
-    "Length": st.column_config.NumberColumn("Length (nt)", format="%d", help=FEATURE_COLUMN_HELP["Length"]),
+    "Start": st.column_config.TextColumn("Start", alignment="right", help=FEATURE_COLUMN_HELP["Start"]),
+    "End": st.column_config.TextColumn("End", alignment="right", help=FEATURE_COLUMN_HELP["End"]),
+    "Length": st.column_config.TextColumn("Length (nt)", alignment="right", help=FEATURE_COLUMN_HELP["Length"]),
     "Strand": st.column_config.TextColumn(
         "Strand", width="small", alignment="center", help=FEATURE_COLUMN_HELP["Strand"]
     ),
@@ -56,10 +64,19 @@ FEATURE_COLUMNS = {
     "Raw name": st.column_config.TextColumn("Raw name", help=FEATURE_COLUMN_HELP["Raw name"]),
 }
 
-RECORD_HEALTH_TONE = {"passed": "ok", "needs_review": "warn", "failed": "danger", "empty": "neutral"}
+RECORD_HEALTH_TONE = {
+    "passed": "ok",
+    "partial": "info",
+    "needs_review": "warn",
+    "no_genes": "warn",
+    "failed": "danger",
+    "empty": "neutral",
+}
 RECORD_HEALTH_LABELS = {
     "passed": _t("passed"),
+    "partial": _t("health_partial"),
     "needs_review": _t("needs_review"),
+    "no_genes": _t("health_no_genes"),
     "failed": _t("failed"),
     "empty": _t("empty"),
 }
@@ -67,9 +84,11 @@ RECORD_COLUMNS = {
     "Record": st.column_config.TextColumn("Record", help=RECORD_COLUMN_HELP["Record"]),
     "Health": _pill_column(
         "Health", RECORD_HEALTH_TONE, RECORD_HEALTH_TONE.get, RECORD_HEALTH_LABELS.get,
-        help=RECORD_COLUMN_HELP["Health"], width=130,
+        help=RECORD_COLUMN_HELP["Health"], width=140,
     ),
+    "Length": st.column_config.NumberColumn("Length (bp)", format="%d", help=RECORD_COLUMN_HELP["Length"]),
     "Features": st.column_config.NumberColumn("Features", format="%d", help=RECORD_COLUMN_HELP["Features"]),
+    "In sequence": st.column_config.NumberColumn("In sequence", format="%d", help=RECORD_COLUMN_HELP["In sequence"]),
     "Pass rate": st.column_config.NumberColumn("Pass rate", format="%.0f%%", help=RECORD_COLUMN_HELP["Pass rate"]),
     "Needs review": st.column_config.NumberColumn("Needs review", format="%d", help=RECORD_COLUMN_HELP["Needs review"]),
     "Method": st.column_config.TextColumn("Method", help=RECORD_COLUMN_HELP["Method"]),
@@ -120,6 +139,8 @@ def _rescue_action(feature: LiftedFeature) -> str:
 
 
 def _status_group(status: str) -> str:
+    if status == NOT_IN_SEQUENCE:
+        return "absent"
     if status in REVIEW_STATUSES:
         return "review"
     if status in GOOD_STATUSES:
@@ -132,8 +153,12 @@ def _record_health(query_id: str, features: List[LiftedFeature], error_map: Dict
         return "failed"
     if not features:
         return "empty"
+    if nothing_located(features):
+        return "no_genes"
     if any(f.status in REVIEW_STATUSES for f in features):
         return "needs_review"
+    if any(f.status == NOT_IN_SEQUENCE for f in features):
+        return "partial"
     return "passed"
 
 
@@ -148,6 +173,25 @@ def _method_tag(features: List[LiftedFeature]) -> str:
     return "none"
 
 
+def _display_results(all_results: List[Tuple[str, List[LiftedFeature]]]) -> List[Tuple[str, List[LiftedFeature]]]:
+    """all_results with the `no_hit` genes that lie outside their record shown as
+    not_in_sequence. Cached per run: placing ~100k features takes a moment."""
+    cached = st.session_state.get("display_results")
+    if cached and cached[0] is all_results:
+        return cached[1]
+    lengths = {record.id: len(record.seq) for record in st.session_state.query_records or []}
+    ref_strands = {f["name"]: f.get("strand", "+") for f in st.session_state.ref_features or []}
+    display = []
+    for query_id, features in all_results:
+        outside = set(missing_genes_outside_record(features, lengths.get(query_id, 0), ref_strands))
+        display.append((query_id, [
+            dataclasses.replace(f, status=NOT_IN_SEQUENCE) if index in outside else f
+            for index, f in enumerate(features)
+        ]))
+    st.session_state.display_results = (all_results, display)
+    return display
+
+
 def _method_label(method: Optional[str]) -> str:
     return _t(f"method_{method}") if method in {"direct", "tblastn"} else (method or "")
 
@@ -158,11 +202,16 @@ def _feature_length(feature: LiftedFeature) -> Optional[int]:
     return feature.query_end - feature.query_start + 1
 
 
+# Numbers that can be missing are shown as text: st.dataframe prints a null
+# number as a literal "None", and unplaced genes have no coordinates. Text
+# columns sort with localeCompare, where space-padding to a fixed width keeps
+# numeric order and "" sorts first.
 def _identity_cell(identity: Optional[float]) -> str:
-    """Identity as text: st.dataframe prints null numbers as a literal "None",
-    and direct features have no identity. Text columns sort with localeCompare,
-    where space-padding to a fixed width keeps numeric order and "" sorts first."""
     return f"{identity:5.1f}%" if identity is not None else ""
+
+
+def _position_cell(value: Optional[int]) -> str:
+    return f"{value:9d}" if value is not None else ""
 
 
 def _feature_frame(rows: List[FeatureRow]) -> pd.DataFrame:
@@ -173,10 +222,11 @@ def _feature_frame(rows: List[FeatureRow]) -> pd.DataFrame:
                 "Gene": gene,
                 "Status": _status_cell(lf.status),
                 "Method": _method_label(lf.method),
-                "Start": lf.query_start,
-                "End": lf.query_end,
-                "Length": _feature_length(lf),
-                "Strand": "−" if lf.strand == "-" else lf.strand,
+                "Start": _position_cell(lf.query_start),
+                "End": _position_cell(lf.query_end),
+                "Length": _position_cell(_feature_length(lf)),
+                # A gene that was never placed has no strand on this record.
+                "Strand": "" if lf.query_start is None else "−" if lf.strand == "-" else lf.strand,
                 "Coverage": lf.coverage * 100 if lf.coverage is not None else None,
                 "Identity": _identity_cell(lf.identity),
                 "Raw name": lf.source_name or "",
@@ -185,9 +235,6 @@ def _feature_frame(rows: List[FeatureRow]) -> pd.DataFrame:
         ],
         columns=list(FEATURE_COLUMNS),
     )
-    # Typed columns so the table sorts numerically.
-    for column in ("Start", "End", "Length"):
-        frame[column] = pd.to_numeric(frame[column], errors="coerce").astype("Int64")
     frame["Coverage"] = pd.to_numeric(frame["Coverage"], errors="coerce")
     return frame
 
@@ -239,10 +286,11 @@ def _render_feature_detail(query_id: str, lf: LiftedFeature, gene: str) -> None:
         + ("<span class='vl-chip is-primary'>approved for FASTA</span>" if approved else "")
         + "</div>"
     )
-    explain = (
-        f"<div class='vl-explain'>{html.escape(_t('invalid_boundary_help'))}</div>"
-        if lf.status == "invalid_boundaries" else ""
-    )
+    explain_key = {
+        "invalid_boundaries": "invalid_boundary_help",
+        NOT_IN_SEQUENCE: "not_in_sequence_help",
+    }.get(lf.status)
+    explain = f"<div class='vl-explain'>{html.escape(_t(explain_key))}</div>" if explain_key else ""
     sequence = _sequence_html(lf.sequence) if lf.sequence else ""
     with _card("feature_detail"):
         st.html(head + _kv_html(items) + explain + sequence)
@@ -253,15 +301,26 @@ def _filter_signature(*parts: object) -> str:
 
 
 def _render_features_view(rows: List[FeatureRow]) -> None:
-    group_counts = {"all": len(rows), "review": 0, "passed": 0, "other": 0}
+    group_counts = {"in_sequence": 0, "review": 0, "passed": 0, "other": 0, "absent": 0, "all": len(rows)}
     for _, lf, _ in rows:
-        group_counts[_status_group(lf.status)] += 1
+        group = _status_group(lf.status)
+        group_counts[group] += 1
+        if group != "absent":
+            group_counts["in_sequence"] += 1
     group_labels = {
-        "all": _t("filter_all"),
+        "in_sequence": _t("filter_in_sequence"),
         "review": _t("filter_review"),
         "passed": _t("filter_passed"),
         "other": _t("filter_other"),
+        "absent": _t("filter_absent"),
+        "all": _t("filter_all"),
     }
+    # With partial records most rows are "not in sequence", so the table opens
+    # on the genes that are actually there.
+    first = "in_sequence" if group_counts["absent"] else "all"
+    show_options = [first] + [
+        group for group in ("review", "passed", "other", "absent") if group_counts[group]
+    ] + (["all"] if first != "all" else [])
     method_labels = {
         "any": _t("filter_any_method"),
         "direct": _t("method_direct"),
@@ -278,9 +337,9 @@ def _render_features_view(rows: List[FeatureRow]) -> None:
         with st.container(horizontal=True, vertical_alignment="center", gap="small"):
             show = st.segmented_control(
                 _t("filter_show"),
-                [group for group in group_labels if group == "all" or group_counts[group]],
-                format_func=lambda group: f"{group_labels[group]} · {group_counts[group]}",
-                default="all",
+                show_options,
+                format_func=lambda group: f"{group_labels[group]} · {group_counts[group]:,}",
+                default=first,
                 required=True,
                 key="results_show",
                 label_visibility="collapsed",
@@ -313,7 +372,11 @@ def _render_features_view(rows: List[FeatureRow]) -> None:
         visible = [
             (query_id, lf, gene)
             for query_id, lf, gene in rows
-            if (show == "all" or _status_group(lf.status) == show)
+            if (
+                show == "all"
+                or _status_group(lf.status) == show
+                or (show == "in_sequence" and _status_group(lf.status) != "absent")
+            )
             and (method == "any" or lf.method == method)
             and (not genes or gene in genes)
             and (not search or search in query_id.lower() or search in gene.lower())
@@ -354,17 +417,21 @@ def _render_records_view(
     rows: List[FeatureRow],
     error_map: Dict[str, str],
 ) -> None:
+    lengths = {record.id: len(record.seq) for record in st.session_state.query_records or []}
     overview = []
     for query_id, features in all_results:
         total = len(features)
+        in_sequence = sum(1 for f in features if f.status != NOT_IN_SEQUENCE)
         passed = sum(1 for f in features if f.status in GOOD_STATUSES)
         health = _record_health(query_id, features, error_map)
         overview.append({
             "health_key": health,
             "Record": query_id,
             "Health": [health],
+            "Length": lengths.get(query_id),
             "Features": total,
-            "Pass rate": passed / total * 100 if total else 0.0,
+            "In sequence": in_sequence,
+            "Pass rate": passed / in_sequence * 100 if in_sequence else 0.0,
             "Needs review": sum(1 for f in features if f.status in REVIEW_STATUSES),
             "Method": METHOD_TAG_LABELS[_method_tag(features)],
             "Error": error_map.get(query_id, ""),
@@ -635,7 +702,8 @@ def _render_export_view(
 
 def stage_results():
     all_results = st.session_state.all_results
-    summary     = summarize_counts(all_results)
+    display_results = _display_results(all_results)
+    summary     = summarize_counts(display_results)
     run_errors  = st.session_state.run_errors or []
     error_map   = _error_by_record(run_errors)
 
@@ -646,10 +714,11 @@ def stage_results():
         if st.session_state.use_ref_names else None
     )
 
+    # Exports use the engine's statuses; the views use the display ones.
     df = _results_to_df(all_results, ref_name_map)
     rows: List[FeatureRow] = [
         (query_id, lf, ref_name_map.get(lf.name, lf.name) if ref_name_map else lf.name)
-        for query_id, features in all_results
+        for query_id, features in display_results
         for lf in features
     ]
 
@@ -673,40 +742,58 @@ def stage_results():
     # ── run health ────────────────────────────────────────────────
     total_records = len(all_results)
     failed_records = len(run_errors)
-    total_features = len(rows)
+    absent_features = summary.pop(NOT_IN_SEQUENCE, 0)
+    in_sequence_features = len(rows) - absent_features
+    partial_records = sum(
+        1 for _, features in display_results if any(f.status == NOT_IN_SEQUENCE for f in features)
+    )
     passing_features = sum(1 for _, lf, _ in rows if lf.status in GOOD_STATUSES)
     review_features = sum(1 for _, lf, _ in rows if lf.status in REVIEW_STATUSES)
-    pass_rate = (passing_features / total_features * 100) if total_features else 0.0
+    pass_rate = (passing_features / in_sequence_features * 100) if in_sequence_features else 0.0
     method_counts: Dict[str, int] = {}
     for _, lf, _ in rows:
-        method_counts[lf.method or "unknown"] = method_counts.get(lf.method or "unknown", 0) + 1
+        if lf.status != NOT_IN_SEQUENCE:
+            method_counts[lf.method or "unknown"] = method_counts.get(lf.method or "unknown", 0) + 1
 
     _render_stats([
         {
             "label": _t("records_processed"),
-            "value": total_records - failed_records,
+            "value": f"{total_records - failed_records:,}",
             "note": _t("failed_delta", count=failed_records) if failed_records else _t("all_processed"),
             "tone": "danger" if failed_records else "plain",
         },
         {
             "label": _t("features_found"),
-            "value": total_features,
-            "note": " · ".join(f"{method} {count}" for method, count in sorted(method_counts.items())),
+            "value": f"{in_sequence_features:,}",
+            "note": (
+                _t("not_in_sequence_note", count=f"{absent_features:,}") if absent_features
+                else " · ".join(f"{method} {count:,}" for method, count in sorted(method_counts.items()))
+            ),
         },
         {
             "label": _t("pass_rate"),
             "value": f"{pass_rate:.1f}%",
-            "note": _t("passed_count", count=passing_features),
+            "note": _t("passed_count", count=f"{passing_features:,}"),
             "tone": "primary",
         },
         {
             "label": _t("needs_review"),
-            "value": review_features,
+            "value": f"{review_features:,}",
             "note": _t("review_note") if review_features else _t("nothing_to_review"),
             "tone": "warn" if review_features else "ok",
         },
     ])
     _render_status_bar(summary)
+    if partial_records:
+        _render_callout(
+            _t(
+                "partial_records_banner",
+                partial=f"{partial_records:,}",
+                total=f"{total_records:,}",
+                absent=f"{absent_features:,}",
+            ),
+            tone="info",
+        )
 
     if run_errors:
         st.error(_t("processing_error", count=failed_records))
@@ -721,7 +808,7 @@ def stage_results():
     )
     if records_tab.open:
         with records_tab:
-            _render_records_view(all_results, rows, error_map)
+            _render_records_view(display_results, rows, error_map)
     elif export_tab.open:
         with export_tab:
             _render_export_view(rows, df, ref_name_map)
