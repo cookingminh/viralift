@@ -3,10 +3,9 @@
 UI_TEXT = {
     "en": {
         # ── shell ─────────────────────────────────────────────────────
-        "sidebar_subtitle": "Viral gene name standardisation",
-        "nav_workspace": "Workspace",
-        "nav_this_run": "This run",
-        "sidebar_theme_hint": "Light / dark follows your system. Change it in ⋮ → Settings.",
+        "brand_subtitle": "Viral gene name standardisation",
+        "records_loaded": "{count} records",
+        "theme_hint": "Light / dark follows your system; switch it from the ⋮ menu at the top right.",
         "step": "Step",
         "step_of": "{index} of 3 · {name}",
         "step_setup": "Setup",

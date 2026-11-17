@@ -104,7 +104,7 @@ def test_workspace_renders(mode):
     _assert_clean(at)
 
 
-def test_sidebar_switches_workspace():
+def test_top_bar_switches_workspace():
     at = _app()
     at.run()
     at.button(key="mode_alias_manager").click().run()
@@ -112,15 +112,15 @@ def test_sidebar_switches_workspace():
     assert at.session_state.app_mode == "Alias manager"
 
 
-def test_sidebar_shows_the_image_version(monkeypatch):
-    # CI stamps the image with these; the sidebar is where users read them.
+def test_footer_shows_the_image_version(monkeypatch):
+    # CI stamps the image with these; the page footer is where users read them.
     monkeypatch.setenv("VIRALIFT_VERSION", "9.9.9")
     monkeypatch.setenv("VIRALIFT_COMMIT", "abcdef1234")
     at = _app()
     at.run()
     _assert_clean(at)
-    sidebar_html = " ".join(element.proto.body for element in at.sidebar.get("html"))
-    assert "ViraLift 9.9.9 · abcdef1" in sidebar_html
+    page_html = " ".join(element.proto.body for element in at.get("html"))
+    assert "ViraLift 9.9.9 · abcdef1" in page_html
 
 
 @pytest.mark.parametrize("mode", ["Run pipeline", "Data crawler", "Alias manager"])

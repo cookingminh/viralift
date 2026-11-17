@@ -25,14 +25,7 @@ sys.path.insert(0, str(ROOT))
 from ui.state import _init_state
 from ui.theme import _inject_css, _nav_active_css
 from ui.i18n import _t
-from ui.components import (
-    PIPELINE_STEP_KEYS,
-    _pipeline_step_index,
-    _render_brand,
-    _render_nav_label,
-    _render_sidebar_context,
-    _render_sidebar_foot,
-)
+from ui.components import _render_brand, _render_footer, _render_topbar_context
 from ui.stages.upload import stage_upload
 from ui.stages.virus_review import stage_virus_review
 from ui.stages.bootstrap_alias import stage_bootstrap_alias
@@ -70,17 +63,14 @@ def _build_label() -> str:
 
 
 def _run_context() -> list:
+    """The current run in a few words, for the top bar (the stepper shows the step)."""
     items = []
-    if st.session_state.ref_record:
-        items.append((_t("reference"), st.session_state.ref_record.id))
-    if st.session_state.query_records:
-        items.append((_t("query_records"), _t("loaded", count=len(st.session_state.query_records))))
     if st.session_state.virus_name:
-        items.append((_t("detected_virus"), st.session_state.virus_name))
-    if st.session_state.alias_config_path:
-        items.append((_t("alias_config"), Path(st.session_state.alias_config_path).name))
-    step = _pipeline_step_index(st.session_state.stage)
-    items.append((_t("step"), _t("step_of", index=step + 1, name=_t(PIPELINE_STEP_KEYS[step]))))
+        items.append(st.session_state.virus_name)
+    if st.session_state.ref_record:
+        items.append(st.session_state.ref_record.id)
+    if st.session_state.query_records:
+        items.append(_t("records_loaded", count=f"{len(st.session_state.query_records):,}"))
     return items
 
 
@@ -92,33 +82,28 @@ st.set_page_config(
     page_title="ViraLift",
     page_icon=":material/genetics:",
     layout="wide",
+    initial_sidebar_state="collapsed",
 )
 
 _init_state()
 _inject_css()
 
-with st.sidebar:
+# Top bar instead of a sidebar, so pages get the full width. theme.py pins it
+# into Streamlit's header band, next to the ⋮ menu.
+with st.container(horizontal=True, vertical_alignment="center", gap="small", key="vl_topbar"):
     _render_brand()
-    _render_nav_label(_t("nav_workspace"))
     for mode, icon in APP_MODES.items():
         st.button(
             mode,
             key=f"mode_{_mode_key(mode)}",
             icon=icon,
             type="tertiary",
-            width="stretch",
             on_click=_set_app_mode,
             args=(mode,),
         )
-    _nav_active_css(f"mode_{_mode_key(st.session_state.app_mode)}")
-
     if st.session_state.app_mode == "Run pipeline":
-        st.space("small")
-        _render_nav_label(_t("nav_this_run"))
-        _render_sidebar_context(_run_context())
-
-    st.space("medium")
-    _render_sidebar_foot(_t("sidebar_theme_hint"), _build_label())
+        _render_topbar_context(_run_context())
+_nav_active_css(f"mode_{_mode_key(st.session_state.app_mode)}")
 
 # route to current stage
 if st.session_state.app_mode == "Alias manager":
@@ -139,3 +124,5 @@ else:
         stage_running()
     elif stage == "results":
         stage_results()
+
+_render_footer(_t("theme_hint"), _build_label())
