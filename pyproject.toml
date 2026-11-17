@@ -17,20 +17,22 @@ dependencies = [
 
 [project.optional-dependencies]
 ui = [
-    "streamlit>=1.40,<2",
+    "streamlit>=1.58,<2",
     "pandas>=2.0,<3",
 ]
 dev = [
     "pytest>=7.4",
 ]
-# Validation / paper-reproduction notebooks. pysam is required by
-# app/src/alignment/sam_lifter.py for the minimap2 engine benchmark (unit 01).
-# External system requirement for unit 01: the `minimap2` executable on PATH.
+# Validation suite (validation/). pysam is required by
+# app/src/alignment/sam_lifter.py for the minimap2 engine benchmark
+# (validation/units/04_engine_comparison), which also needs `minimap2` on PATH.
 validation = [
     "pysam>=0.22",
     "pandas>=2.0,<3",
     "matplotlib>=3.7",
     "jupyter>=1.0",
+    "nbclient>=0.9",
+    "nbformat>=5.9",
 ]
 
 [project.scripts]
@@ -46,7 +48,7 @@ gbcrawler = "gbcrawler.__main__:main"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["app*", "ui*", "gbcrawler*"]
-exclude = ["app.src.tests*", "app.validation*", "output*"]
+exclude = ["app.src.tests*", "validation*", "output*"]
 
 # Ship the alias config JSON so the CLI works after `pip install` outside the repo.
 [tool.setuptools.package-data]

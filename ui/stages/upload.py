@@ -1,4 +1,5 @@
-# Auto-split from the original monolithic streamlit_app.py.
+# Step 1 · Setup — upload reference + query and configure the run.
+import html
 import streamlit as st
 import tempfile
 from pathlib import Path
@@ -6,10 +7,16 @@ from app.src.alias.alias_bootstrap import build_seed_alias_config_from_ref
 from app.src.features.ref_loader import prepare_reference_features
 from app.src.io.genbank_parser import load_genbank_records, load_single_genbank
 from app.src.io.run_logger import log_error
-from ui.components import _render_context_panel, _render_page_intro
+from ui.components import _card, _render_callout, _render_page_intro, _render_section_title
+from ui.guide import _open_guide
 from ui.i18n import _t
 from ui.services import _load_excluded_names, _record_metadata_candidates, _save_upload, _scan_unknown_names, _scan_unknown_ref_names, _suggest_virus_name
 from ui.state import REGISTRY_PATH
+
+
+def _clear_crawler_query() -> None:
+    st.session_state.crawler_query_path = None
+    st.session_state.crawler_query_label = ""
 
 
 def stage_upload():
@@ -17,50 +24,60 @@ def stage_upload():
         _t("run_setup"),
         _t("upload_title"),
         _t("upload_body"),
+        guide=_open_guide,
     )
 
-    col_ref, col_query = st.columns(2)
-    with col_ref:
-        st.markdown(f"**{_t('reference_record')}**")
-        st.caption(_t("reference_caption"))
+    col_ref, col_query = st.columns(2, gap="medium")
+    with col_ref, _card("ref"):
+        _render_section_title(_t("reference_record"), _t("reference_caption"))
         ref_file = st.file_uploader("Reference GenBank (.gb)", type=["gb", "gbk"], label_visibility="collapsed")
-    with col_query:
-        st.markdown(f"**{_t('query_records')}**")
-        st.caption(_t("query_caption"))
+    with col_query, _card("query"):
+        _render_section_title(_t("query_records"), _t("query_caption"))
         crawled_query_path = st.session_state.get("crawler_query_path")
         if crawled_query_path:
-            st.success(f"Using crawler output: `{Path(crawled_query_path).name}`")
-            if st.button("Clear crawler query", key="clear_crawler_query"):
-                st.session_state.crawler_query_path = None
-                st.session_state.crawler_query_label = ""
-                st.rerun()
+            _render_callout(
+                f"<b>{html.escape(_t('crawler_query_ready'))}</b><br>"
+                f"<span class='vl-mono'>{html.escape(Path(crawled_query_path).name)}</span>",
+                tone="ok",
+                icon="✓",
+            )
+            st.button(_t("clear_crawler_query"), key="clear_crawler_query", on_click=_clear_crawler_query)
             query_file = None
         else:
             query_file = st.file_uploader("Query GenBank (.gb)", type=["gb", "gbk"], label_visibility="collapsed")
 
-    with st.expander(_t("file_requirements"), expanded=False):
-        st.markdown(_t("file_requirements_body"))
-
-    st.divider()
-    st.subheader(_t("advanced_options"))
-    adv = st.expander(_t("lifting_thresholds"), expanded=False)
-    with adv:
-        st.caption(_t("threshold_caption"))
-        c1, c2, c3, c4 = st.columns(4)
-        st.session_state.min_coverage   = c1.number_input(_t("min_coverage"),  0.0, 1.0, 0.5, 0.05)
-        st.session_state.min_identity   = c2.number_input(_t("min_identity"),  0.0, 1.0, 0.3, 0.05)
-        st.session_state.evalue         = c3.number_input(_t("evalue"),       value=1e-5, format="%.0e")
-        st.session_state.rescue_window  = c4.number_input(_t("rescue_window"), 10,  500,   200,   10)
-
-    st.divider()
-    st.session_state.use_ref_names = st.toggle(
-        _t("use_ref_names"),
-        value=False,
-        help=_t("use_ref_names_help"),
-    )
+    with _card("options"):
+        _render_section_title(_t("run_options"), _t("run_options_caption"))
+        st.session_state.use_ref_names = st.toggle(
+            _t("use_ref_names"),
+            value=False,
+            help=_t("use_ref_names_help"),
+        )
+        with st.expander(_t("lifting_thresholds"), expanded=False):
+            st.caption(_t("threshold_caption"))
+            c1, c2, c3, c4 = st.columns(4)
+            st.session_state.min_coverage   = c1.number_input(_t("min_coverage"),  0.0, 1.0, 0.5, 0.05)
+            st.session_state.min_identity   = c2.number_input(_t("min_identity"),  0.0, 1.0, 0.3, 0.05)
+            st.session_state.evalue         = c3.number_input(_t("evalue"),       value=1e-5, format="%.0e")
+            st.session_state.rescue_window  = c4.number_input(_t("rescue_window"), 10,  500,   200,   10)
+        with st.expander(_t("file_requirements"), expanded=False):
+            st.markdown(_t("file_requirements_body"))
 
     ready = ref_file and (query_file or st.session_state.get("crawler_query_path"))
-    if st.button(_t("run_button"), disabled=not ready, type="primary", width="stretch"):
+    with st.container(horizontal=True, horizontal_alignment="distribute", vertical_alignment="center"):
+        if ready:
+            query_label = query_file.name if query_file else Path(st.session_state.crawler_query_path).name
+            st.caption(_t("ready_to_run", ref=ref_file.name, query=query_label))
+        else:
+            st.caption(_t("add_files_hint"))
+        run_clicked = st.button(
+            _t("run_button"),
+            icon=":material/arrow_forward:",
+            disabled=not ready,
+            type="primary",
+        )
+
+    if run_clicked:
         # persist files to temp dir
         if st.session_state.tmp is None:
             st.session_state.tmp = tempfile.TemporaryDirectory()
@@ -142,11 +159,3 @@ def stage_upload():
             st.session_state.stage = "running"
 
         st.rerun()
-
-    if ref_file and (query_file or st.session_state.get("crawler_query_path")):
-        query_label = query_file.name if query_file else Path(st.session_state.crawler_query_path).name
-        _render_context_panel([
-            (_t("reference_file"), ref_file.name),
-            (_t("query_file"), query_label),
-            (_t("name_mode"), _t("reference_names") if st.session_state.use_ref_names else _t("canonical_names")),
-        ])

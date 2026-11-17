@@ -1,13 +1,636 @@
-# Auto-split from the original monolithic streamlit_app.py.
+# Step 3 · Results — run health, a filterable feature table with a detail panel,
+# a per-record view, and TSV / FASTA export.
+import hashlib
+import html
 import pandas as pd
 import streamlit as st
-from typing import Dict, List, Optional
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple
 from app.src.io.result_writer import summarize_counts
 from app.src.lifting.base import LiftedFeature
-from ui.components import _error_by_record, _format_fraction_percent, _format_percent, _method_section_label, _ordered_methods, _render_page_intro, _status_text
+from ui.components import (
+    _card,
+    _error_by_record,
+    _format_fraction_percent,
+    _format_percent,
+    _kv_html,
+    _pill_column,
+    _render_page_intro,
+    _render_section_title,
+    _render_stats,
+    _render_status_bar,
+    _sequence_html,
+    _status_badge,
+    _status_cell,
+    _status_column,
+)
+from ui.guide import FEATURE_COLUMN_HELP, RECORD_COLUMN_HELP, _open_guide, _render_table_help
 from ui.i18n import _t
-from ui.services import _canonical_to_ref_map, _results_to_df
+from ui.services import _canonical_to_ref_map, _results_to_df, _selected_dataframe_rows
 from ui.state import GOOD_STATUSES, REVIEW_STATUSES, _reset
+
+
+# (query_id, feature, display gene name) — one entry per feature row.
+FeatureRow = Tuple[str, LiftedFeature, str]
+
+MANUALLY_APPROVABLE_STATUSES = {
+    "invalid_boundaries",
+    "low_coverage",
+    "low_identity",
+    "low_coverage_and_identity",
+}
+
+FEATURE_COLUMNS = {
+    "Record": st.column_config.TextColumn("Record", help=FEATURE_COLUMN_HELP["Record"]),
+    "Gene": st.column_config.TextColumn("Gene", help=FEATURE_COLUMN_HELP["Gene"]),
+    "Status": _status_column(FEATURE_COLUMN_HELP["Status"]),
+    "Method": st.column_config.TextColumn("Method", width="small", help=FEATURE_COLUMN_HELP["Method"]),
+    "Start": st.column_config.NumberColumn("Start", format="%d", help=FEATURE_COLUMN_HELP["Start"]),
+    "End": st.column_config.NumberColumn("End", format="%d", help=FEATURE_COLUMN_HELP["End"]),
+    "Length": st.column_config.NumberColumn("Length (nt)", format="%d", help=FEATURE_COLUMN_HELP["Length"]),
+    "Strand": st.column_config.TextColumn(
+        "Strand", width="small", alignment="center", help=FEATURE_COLUMN_HELP["Strand"]
+    ),
+    "Coverage": st.column_config.NumberColumn("Coverage", format="%.1f%%", help=FEATURE_COLUMN_HELP["Coverage"]),
+    "Identity": st.column_config.TextColumn("Identity", alignment="right", help=FEATURE_COLUMN_HELP["Identity"]),
+    "Raw name": st.column_config.TextColumn("Raw name", help=FEATURE_COLUMN_HELP["Raw name"]),
+}
+
+RECORD_HEALTH_TONE = {"passed": "ok", "needs_review": "warn", "failed": "danger", "empty": "neutral"}
+RECORD_HEALTH_LABELS = {
+    "passed": _t("passed"),
+    "needs_review": _t("needs_review"),
+    "failed": _t("failed"),
+    "empty": _t("empty"),
+}
+RECORD_COLUMNS = {
+    "Record": st.column_config.TextColumn("Record", help=RECORD_COLUMN_HELP["Record"]),
+    "Health": _pill_column(
+        "Health", RECORD_HEALTH_TONE, RECORD_HEALTH_TONE.get, RECORD_HEALTH_LABELS.get,
+        help=RECORD_COLUMN_HELP["Health"], width=130,
+    ),
+    "Features": st.column_config.NumberColumn("Features", format="%d", help=RECORD_COLUMN_HELP["Features"]),
+    "Pass rate": st.column_config.NumberColumn("Pass rate", format="%.0f%%", help=RECORD_COLUMN_HELP["Pass rate"]),
+    "Needs review": st.column_config.NumberColumn("Needs review", format="%d", help=RECORD_COLUMN_HELP["Needs review"]),
+    "Method": st.column_config.TextColumn("Method", help=RECORD_COLUMN_HELP["Method"]),
+    "Error": st.column_config.TextColumn("Error", width="large", help=RECORD_COLUMN_HELP["Error"]),
+}
+METHOD_TAG_LABELS = {
+    "direct": _t("method_direct"),
+    "tblastn": _t("method_tblastn"),
+    "tblastn + direct": _t("method_both"),
+    "none": "—",
+}
+
+
+def _export_key(query_id: str, feature: LiftedFeature, gene: str) -> str:
+    return "|".join(
+        str(value)
+        for value in (
+            query_id,
+            gene,
+            feature.status,
+            feature.query_start,
+            feature.query_end,
+            feature.strand,
+        )
+    )
+
+
+def _boundary_check(feature: LiftedFeature) -> str:
+    checks = []
+    for label, value in (
+        ("start", feature.has_start_codon),
+        ("stop", feature.has_stop_codon),
+        ("frame", feature.in_frame),
+    ):
+        if value is not None:
+            checks.append(f"{label} {'✓' if value else '✗'}")
+    return " · ".join(checks)
+
+
+def _rescue_action(feature: LiftedFeature) -> str:
+    if feature.rescue_action:
+        return feature.rescue_action
+    if feature.rescue_target and feature.rescue_offset is not None:
+        return f"{feature.rescue_target} {feature.rescue_offset:+d} bp"
+    if feature.rescue_offset is not None:
+        return f"start {feature.rescue_offset:+d} bp"
+    return ""
+
+
+def _status_group(status: str) -> str:
+    if status in REVIEW_STATUSES:
+        return "review"
+    if status in GOOD_STATUSES:
+        return "passed"
+    return "other"
+
+
+def _record_health(query_id: str, features: List[LiftedFeature], error_map: Dict[str, str]) -> str:
+    if query_id in error_map:
+        return "failed"
+    if not features:
+        return "empty"
+    if any(f.status in REVIEW_STATUSES for f in features):
+        return "needs_review"
+    return "passed"
+
+
+def _method_tag(features: List[LiftedFeature]) -> str:
+    methods = {f.method for f in features if f.method}
+    if methods == {"direct"}:
+        return "direct"
+    if "tblastn" in methods and "direct" not in methods:
+        return "tblastn"
+    if methods:
+        return "tblastn + direct"
+    return "none"
+
+
+def _method_label(method: Optional[str]) -> str:
+    return _t(f"method_{method}") if method in {"direct", "tblastn"} else (method or "")
+
+
+def _feature_length(feature: LiftedFeature) -> Optional[int]:
+    if feature.query_start is None or feature.query_end is None:
+        return None
+    return feature.query_end - feature.query_start + 1
+
+
+def _identity_cell(identity: Optional[float]) -> str:
+    """Identity as text: st.dataframe prints null numbers as a literal "None",
+    and direct features have no identity. Text columns sort with localeCompare,
+    where space-padding to a fixed width keeps numeric order and "" sorts first."""
+    return f"{identity:5.1f}%" if identity is not None else ""
+
+
+def _feature_frame(rows: List[FeatureRow]) -> pd.DataFrame:
+    frame = pd.DataFrame(
+        [
+            {
+                "Record": query_id,
+                "Gene": gene,
+                "Status": _status_cell(lf.status),
+                "Method": _method_label(lf.method),
+                "Start": lf.query_start,
+                "End": lf.query_end,
+                "Length": _feature_length(lf),
+                "Strand": "−" if lf.strand == "-" else lf.strand,
+                "Coverage": lf.coverage * 100 if lf.coverage is not None else None,
+                "Identity": _identity_cell(lf.identity),
+                "Raw name": lf.source_name or "",
+            }
+            for query_id, lf, gene in rows
+        ],
+        columns=list(FEATURE_COLUMNS),
+    )
+    # Typed columns so the table sorts numerically.
+    for column in ("Start", "End", "Length"):
+        frame[column] = pd.to_numeric(frame[column], errors="coerce").astype("Int64")
+    frame["Coverage"] = pd.to_numeric(frame["Coverage"], errors="coerce")
+    return frame
+
+
+def _table_height(rows: int, cap: int = 520) -> int:
+    return min(cap, 38 + 35 * max(rows, 1))
+
+
+def _approved_export_keys() -> set:
+    return set(st.session_state.get("approved_export_features", []))
+
+
+def _save_approved_export_keys(keys: set) -> None:
+    st.session_state.approved_export_features = sorted(keys)
+
+
+def _clear_approvals() -> None:
+    st.session_state.approved_export_features = []
+    st.session_state.pop("fasta_approval_editor", None)
+
+
+def _render_feature_detail(query_id: str, lf: LiftedFeature, gene: str) -> None:
+    approved = _export_key(query_id, lf, gene) in _approved_export_keys()
+    coords = (
+        f"{lf.query_start:,}–{lf.query_end:,} ({lf.strand})"
+        if lf.query_start is not None and lf.query_end is not None
+        else "not mapped"
+    )
+    ref_coords = (
+        f"{lf.ref_start:,}–{lf.ref_end:,}"
+        if lf.ref_start is not None and lf.ref_end is not None
+        else "—"
+    )
+    items = [
+        ("Raw name", lf.source_name or "—"),
+        ("Query coordinates", coords),
+        ("Reference coordinates", ref_coords),
+        ("Length", f"{len(lf.sequence):,} nt" if lf.sequence else "—"),
+        ("Coverage · identity", f"{_format_fraction_percent(lf.coverage)} · {_format_percent(lf.identity)}"),
+        ("Boundary check", _boundary_check(lf) or "—"),
+        ("Rescue action", _rescue_action(lf) or "—"),
+        ("Bit score", f"{lf.score:.1f}" if lf.score is not None else "—"),
+    ]
+    head = (
+        "<div class='vl-detail-head'>"
+        f"<span class='vl-detail-title'>{html.escape(query_id)} · {html.escape(gene)}</span>"
+        f"{_status_badge(lf.status)}"
+        f"<span class='vl-chip'>{html.escape(lf.method or 'unknown')}</span>"
+        + ("<span class='vl-chip is-primary'>approved for FASTA</span>" if approved else "")
+        + "</div>"
+    )
+    explain = (
+        f"<div class='vl-explain'>{html.escape(_t('invalid_boundary_help'))}</div>"
+        if lf.status == "invalid_boundaries" else ""
+    )
+    sequence = _sequence_html(lf.sequence) if lf.sequence else ""
+    with _card("feature_detail"):
+        st.html(head + _kv_html(items) + explain + sequence)
+
+
+def _filter_signature(*parts: object) -> str:
+    return hashlib.md5(repr(parts).encode("utf-8")).hexdigest()[:10]
+
+
+def _render_features_view(rows: List[FeatureRow]) -> None:
+    group_counts = {"all": len(rows), "review": 0, "passed": 0, "other": 0}
+    for _, lf, _ in rows:
+        group_counts[_status_group(lf.status)] += 1
+    group_labels = {
+        "all": _t("filter_all"),
+        "review": _t("filter_review"),
+        "passed": _t("filter_passed"),
+        "other": _t("filter_other"),
+    }
+    method_labels = {
+        "any": _t("filter_any_method"),
+        "direct": _t("method_direct"),
+        "tblastn": _t("method_tblastn"),
+    }
+
+    selected_row: Optional[FeatureRow] = None
+    with _card("features"):
+        # The title shows the live row count, so it is filled in after the filters run.
+        with st.container(horizontal=True, horizontal_alignment="distribute", vertical_alignment="center"):
+            title_slot = st.empty()
+            _render_table_help(FEATURE_COLUMN_HELP, key="features_table_help")
+
+        with st.container(horizontal=True, vertical_alignment="center", gap="small"):
+            show = st.segmented_control(
+                _t("filter_show"),
+                [group for group in group_labels if group == "all" or group_counts[group]],
+                format_func=lambda group: f"{group_labels[group]} · {group_counts[group]}",
+                default="all",
+                required=True,
+                key="results_show",
+                label_visibility="collapsed",
+            )
+            method = st.segmented_control(
+                _t("filter_method"),
+                list(method_labels),
+                format_func=method_labels.get,
+                default="any",
+                required=True,
+                key="results_method",
+                label_visibility="collapsed",
+            )
+            genes = st.multiselect(
+                _t("filter_genes"),
+                sorted({gene for _, _, gene in rows}),
+                placeholder=_t("all_genes"),
+                key="results_genes",
+                label_visibility="collapsed",
+                width=240,
+            )
+            search = st.text_input(
+                _t("search_feature"),
+                placeholder=_t("search_feature"),
+                icon=":material/search:",
+                key="results_search",
+                label_visibility="collapsed",
+            ).strip().lower()
+
+        visible = [
+            (query_id, lf, gene)
+            for query_id, lf, gene in rows
+            if (show == "all" or _status_group(lf.status) == show)
+            and (method == "any" or lf.method == method)
+            and (not genes or gene in genes)
+            and (not search or search in query_id.lower() or search in gene.lower())
+        ]
+        with title_slot:
+            _render_section_title(
+                _t("feature_table"),
+                _t("feature_table_caption", shown=f"{len(visible):,}", total=f"{len(rows):,}"),
+            )
+        if not visible:
+            st.info(_t("no_rows"))
+            return
+
+        # The hint sits above the table so the table's hover toolbar has room
+        # and does not cover the search box.
+        st.caption(_t("select_hint"))
+        # A new key per filter combination resets the selection when the visible
+        # rows change, so a stale row index never points at a different feature.
+        event = st.dataframe(
+            _feature_frame(visible),
+            column_config=FEATURE_COLUMNS,
+            hide_index=True,
+            height=_table_height(len(visible)),
+            on_select="rerun",
+            selection_mode="single-row",
+            key=f"results_features_{_filter_signature(show, method, tuple(genes), search)}",
+        )
+        selected = _selected_dataframe_rows(event)
+        if selected and selected[0] < len(visible):
+            selected_row = visible[selected[0]]
+
+    if selected_row:
+        _render_feature_detail(*selected_row)
+
+
+def _render_records_view(
+    all_results: List[Tuple[str, List[LiftedFeature]]],
+    rows: List[FeatureRow],
+    error_map: Dict[str, str],
+) -> None:
+    overview = []
+    for query_id, features in all_results:
+        total = len(features)
+        passed = sum(1 for f in features if f.status in GOOD_STATUSES)
+        health = _record_health(query_id, features, error_map)
+        overview.append({
+            "health_key": health,
+            "Record": query_id,
+            "Health": [health],
+            "Features": total,
+            "Pass rate": passed / total * 100 if total else 0.0,
+            "Needs review": sum(1 for f in features if f.status in REVIEW_STATUSES),
+            "Method": METHOD_TAG_LABELS[_method_tag(features)],
+            "Error": error_map.get(query_id, ""),
+        })
+
+    present = [h for h in RECORD_HEALTH_LABELS if any(row["health_key"] == h for row in overview)]
+    record_id: Optional[str] = None
+    with _card("records"):
+        with st.container(horizontal=True, horizontal_alignment="distribute", vertical_alignment="center"):
+            title_slot = st.empty()
+            _render_table_help(RECORD_COLUMN_HELP, key="records_table_help", status_legend=False)
+
+        with st.container(horizontal=True, vertical_alignment="center", gap="small"):
+            health = st.segmented_control(
+                _t("health_filter"),
+                ["all"] + present,
+                format_func=lambda h: _t("filter_all") if h == "all" else RECORD_HEALTH_LABELS[h],
+                default="all",
+                required=True,
+                key="results_record_health",
+                label_visibility="collapsed",
+            )
+            search = st.text_input(
+                _t("search_record"),
+                placeholder=_t("search_record"),
+                icon=":material/search:",
+                key="results_record_search",
+                label_visibility="collapsed",
+            ).strip().lower()
+
+        visible = [
+            row for row in overview
+            if (health == "all" or row["health_key"] == health)
+            and (not search or search in row["Record"].lower())
+        ]
+        with title_slot:
+            _render_section_title(
+                _t("record_table"),
+                _t("record_table_caption", shown=f"{len(visible):,}", total=f"{len(overview):,}"),
+            )
+        if not visible:
+            st.info(_t("no_rows"))
+            return
+
+        st.caption(_t("select_record_hint"))
+        event = st.dataframe(
+            pd.DataFrame(visible, columns=["health_key", *RECORD_COLUMNS]).drop(columns=["health_key"]),
+            column_config=RECORD_COLUMNS,
+            hide_index=True,
+            height=_table_height(len(visible), cap=420),
+            on_select="rerun",
+            selection_mode="single-row",
+            key=f"results_records_{_filter_signature(health, search)}",
+        )
+        selected = _selected_dataframe_rows(event)
+        if selected and selected[0] < len(visible):
+            record_id = visible[selected[0]]["Record"]
+
+    if record_id is None:
+        return
+    record_rows = [row for row in rows if row[0] == record_id]
+    with _card("record_detail"):
+        _render_section_title(record_id, f"{len(record_rows)} feature(s)")
+        if record_id in error_map:
+            st.error(error_map[record_id])
+        elif not record_rows:
+            st.warning(_t("no_features"))
+        else:
+            st.dataframe(
+                _feature_frame(record_rows).drop(columns=["Record"]),
+                column_config=FEATURE_COLUMNS,
+                hide_index=True,
+                height=_table_height(len(record_rows), cap=420),
+            )
+
+
+def _render_approval_editor(rows: List[FeatureRow]) -> None:
+    review_candidates = [
+        (query_id, lf, gene)
+        for query_id, lf, gene in rows
+        if lf.status in MANUALLY_APPROVABLE_STATUSES and lf.sequence
+    ]
+    if not review_candidates:
+        return
+
+    approved_keys = _approved_export_keys()
+    candidate_keys = [_export_key(query_id, lf, gene) for query_id, lf, gene in review_candidates]
+    with st.expander(
+        f"{_t('manual_approve_features')} ({len(review_candidates)})",
+        expanded=bool(approved_keys),
+    ):
+        st.caption(_t("manual_approve_help"))
+        base = _feature_frame(review_candidates).drop(columns=["Method", "Raw name"])
+        base.insert(0, "Approve", [key in approved_keys for key in candidate_keys])
+        edited = st.data_editor(
+            base,
+            column_config={
+                **FEATURE_COLUMNS,
+                "Approve": st.column_config.CheckboxColumn(_t("approve_column"), width="small"),
+            },
+            disabled=[column for column in base.columns if column != "Approve"],
+            hide_index=True,
+            height=_table_height(len(base), cap=380),
+            key="fasta_approval_editor",
+        )
+        updated = (approved_keys - set(candidate_keys)) | {
+            key for key, flag in zip(candidate_keys, edited["Approve"]) if flag
+        }
+        if updated != approved_keys:
+            _save_approved_export_keys(updated)
+
+        with st.container(horizontal=True, horizontal_alignment="distribute", vertical_alignment="center"):
+            st.caption(_t("approved_export_count", count=len(updated)))
+            st.button(
+                _t("clear_approvals"),
+                key="clear_fasta_approvals",
+                disabled=not updated,
+                on_click=_clear_approvals,
+            )
+
+
+def _render_export_view(
+    rows: List[FeatureRow],
+    df: pd.DataFrame,
+    ref_name_map: Optional[Dict[str, str]],
+) -> None:
+    with _card("tsv"):
+        _render_section_title(_t("tsv"), _t("download_table"))
+        tsv_canonical = df.drop(columns=["sequence"]).to_csv(sep="\t", index=False)
+        df_raw = df.copy()
+        has_source = df_raw["source_name"].notna() & (df_raw["source_name"] != "")
+        df_raw.loc[has_source, "name"] = df_raw.loc[has_source, "source_name"]
+        tsv_raw = df_raw.drop(columns=["sequence"]).to_csv(sep="\t", index=False)
+        with st.container(horizontal=True):
+            st.download_button(
+                _t("download_display"),
+                data=tsv_canonical,
+                file_name="viralift_canonical.tsv",
+                mime="text/tab-separated-values",
+                icon=":material/download:",
+                on_click="ignore",
+            )
+            st.download_button(
+                _t("download_raw"),
+                data=tsv_raw,
+                file_name="viralift_raw.tsv",
+                mime="text/tab-separated-values",
+                icon=":material/download:",
+                on_click="ignore",
+            )
+
+    with _card("fasta"):
+        _render_section_title(_t("fasta"), _t("fasta_intro"))
+
+        # gene list: display names respect the use_ref_names toggle
+        ref_gene_names = sorted({
+            (ref_name_map.get(f.get("name"), f.get("name")) if ref_name_map else f.get("name"))
+            for f in st.session_state.ref_features
+            if f.get("name")
+        })
+
+        col_select, col_format = st.columns([3, 2])
+        selected_genes = col_select.multiselect(
+            _t("genes_to_extract"),
+            options=ref_gene_names,
+            default=ref_gene_names,
+        )
+        fasta_mode = col_format.segmented_control(
+            _t("output_format"),
+            [_t("one_fasta"), _t("all_fasta")],
+            default=_t("one_fasta"),
+            required=True,
+            key="fasta_mode",
+        )
+
+        st.markdown(f"**{_t('quality_filter')}**")
+        qf_col1, qf_col2, qf_col3, qf_col4 = st.columns(4, vertical_alignment="center")
+        min_cov_export = qf_col1.slider(_t("min_coverage"), 0.0, 1.0, 0.5, 0.05)
+        min_id_export  = qf_col2.slider(_t("min_identity"),  0.0, 100.0, 0.0, 5.0)
+        include_rescued = qf_col3.checkbox(_t("include_rescued"), value=True)
+        include_extrapolated = qf_col4.checkbox(_t("include_extrapolated"), value=True)
+
+        accepted_statuses = {"ok", "direct"}
+        if include_rescued:
+            accepted_statuses.add("ok_rescued")
+        if include_extrapolated:
+            accepted_statuses.add("ok_extrapolated")
+
+        _render_approval_editor(rows)
+        approved_review_keys = _approved_export_keys()
+
+        def _passes_fasta_filters(query_id: str, feature: LiftedFeature, gene: str) -> bool:
+            if gene not in selected_genes or not feature.sequence:
+                return False
+            if _export_key(query_id, feature, gene) in approved_review_keys:
+                return True
+            if feature.status not in accepted_statuses:
+                return False
+            if feature.coverage is not None and feature.coverage < min_cov_export:
+                return False
+            if feature.identity is not None and feature.identity < min_id_export:
+                return False
+            return True
+
+        candidate_count = sum(
+            1 for query_id, lf, gene in rows if _passes_fasta_filters(query_id, lf, gene)
+        )
+
+        with st.container(horizontal=True, horizontal_alignment="distribute", vertical_alignment="center"):
+            st.caption(_t("candidate_count", count=candidate_count))
+            generate = st.button(
+                _t("generate_fasta"),
+                icon=":material/genetics:",
+                type="primary",
+                disabled=not candidate_count,
+            )
+
+        if generate:
+            # build gene to sequences dict (keyed by display name)
+            gene_seqs: Dict[str, List[str]] = {g: [] for g in selected_genes}
+            skipped = 0
+
+            for query_id, lf, gene in rows:
+                if gene not in gene_seqs:
+                    continue
+                if not _passes_fasta_filters(query_id, lf, gene):
+                    skipped += 1
+                    continue
+                header = f">{query_id}|{gene}|{lf.query_start}|{lf.query_end}|{lf.strand}"
+                gene_seqs[gene].append(f"{header}\n{lf.sequence}")
+
+            if fasta_mode == _t("all_fasta"):
+                all_seqs = "\n".join(
+                    seq for gene in selected_genes for seq in gene_seqs[gene]
+                )
+                st.download_button(
+                    _t("download_all_fasta"),
+                    data=all_seqs,
+                    file_name="all_genes.fasta",
+                    mime="text/plain",
+                    icon=":material/download:",
+                    type="primary",
+                    on_click="ignore",
+                )
+            else:
+                # one download button per gene
+                empty_genes = [gene for gene in selected_genes if not gene_seqs[gene]]
+                with st.container(horizontal=True):
+                    for gene in selected_genes:
+                        seqs = gene_seqs[gene]
+                        if not seqs:
+                            continue
+                        st.download_button(
+                            _t("gene_download", gene=gene, count=len(seqs)),
+                            data="\n".join(seqs),
+                            file_name=f"{gene}.fasta",
+                            mime="text/plain",
+                            icon=":material/download:",
+                            key=f"dl_{gene}",
+                            on_click="ignore",
+                        )
+                for gene in empty_genes:
+                    st.warning(_t("no_sequences", gene=gene))
+
+            if skipped:
+                st.caption(_t("skipped", count=skipped))
 
 
 def stage_results():
@@ -24,479 +647,84 @@ def stage_results():
     )
 
     df = _results_to_df(all_results, ref_name_map)
+    rows: List[FeatureRow] = [
+        (query_id, lf, ref_name_map.get(lf.name, lf.name) if ref_name_map else lf.name)
+        for query_id, features in all_results
+        for lf in features
+    ]
 
     # ── header ───────────────────────────────────────────────────
     _render_page_intro(
         _t("run_review"),
         _t("results_title"),
         _t("results_body"),
+        guide=_open_guide,
     )
-    if st.session_state.use_ref_names:
-        st.caption(_t("ref_names_caption"))
-    st.button(_t("new_run"), key="results_new_run", on_click=_reset)
 
-    total_records = len(all_results)
-    failed_records = len(run_errors)
-    total_features = sum(len(features) for _, features in all_results)
-    passing_features = sum(
-        1
-        for _, features in all_results
-        for feature in features
-        if feature.status in GOOD_STATUSES
-    )
-    review_features = sum(
-        1
-        for _, features in all_results
-        for feature in features
-        if feature.status in REVIEW_STATUSES
-    )
-    pass_rate = (passing_features / total_features * 100) if total_features else 0.0
+    run_facts = [st.session_state.ref_record.id]
+    if st.session_state.alias_config_path:
+        run_facts.append(Path(st.session_state.alias_config_path).name)
+    if st.session_state.use_ref_names:
+        run_facts.append(_t("ref_names_caption"))
+    with st.container(horizontal=True, horizontal_alignment="distribute", vertical_alignment="center"):
+        st.caption(" · ".join(run_facts))
+        st.button(_t("new_run"), icon=":material/restart_alt:", key="results_new_run", on_click=_reset)
 
     # ── run health ────────────────────────────────────────────────
-    health_cols = st.columns(4)
-    health_cols[0].metric(_t("records_processed"), total_records - failed_records, delta=_t("failed_delta", count=failed_records) if failed_records else None)
-    health_cols[1].metric(_t("features_found"), total_features)
-    health_cols[2].metric(_t("pass_rate"), f"{pass_rate:.1f}%")
-    health_cols[3].metric(_t("needs_review"), review_features)
+    total_records = len(all_results)
+    failed_records = len(run_errors)
+    total_features = len(rows)
+    passing_features = sum(1 for _, lf, _ in rows if lf.status in GOOD_STATUSES)
+    review_features = sum(1 for _, lf, _ in rows if lf.status in REVIEW_STATUSES)
+    pass_rate = (passing_features / total_features * 100) if total_features else 0.0
+    method_counts: Dict[str, int] = {}
+    for _, lf, _ in rows:
+        method_counts[lf.method or "unknown"] = method_counts.get(lf.method or "unknown", 0) + 1
+
+    _render_stats([
+        {
+            "label": _t("records_processed"),
+            "value": total_records - failed_records,
+            "note": _t("failed_delta", count=failed_records) if failed_records else _t("all_processed"),
+            "tone": "danger" if failed_records else "plain",
+        },
+        {
+            "label": _t("features_found"),
+            "value": total_features,
+            "note": " · ".join(f"{method} {count}" for method, count in sorted(method_counts.items())),
+        },
+        {
+            "label": _t("pass_rate"),
+            "value": f"{pass_rate:.1f}%",
+            "note": _t("passed_count", count=passing_features),
+            "tone": "primary",
+        },
+        {
+            "label": _t("needs_review"),
+            "value": review_features,
+            "note": _t("review_note") if review_features else _t("nothing_to_review"),
+            "tone": "warn" if review_features else "ok",
+        },
+    ])
+    _render_status_bar(summary)
 
     if run_errors:
         st.error(_t("processing_error", count=failed_records))
         with st.expander(_t("processing_errors"), expanded=True):
             st.dataframe(pd.DataFrame(run_errors), width="stretch", hide_index=True)
 
-    status_rows = [
-        {
-            "status": _t(f"status_{status}"),
-            "count": count,
-            "review": _t("yes") if status in REVIEW_STATUSES else _t("no"),
-        }
-        for status, count in summary.items()
-        if count
-    ]
-    if status_rows:
-        with st.expander(_t("status_breakdown"), expanded=review_features > 0):
-            st.dataframe(pd.DataFrame(status_rows), width="stretch", hide_index=True)
-
-    st.divider()
-
-    # ── per-record overview ───────────────────────────────────────
-    st.subheader(_t("record_overview"))
-    overview_rows = []
-    for query_id, features in all_results:
-        ok_count     = sum(1 for f in features if f.status in GOOD_STATUSES)
-        total_count  = len(features)
-        needs_review = sum(1 for f in features if f.status in REVIEW_STATUSES)
-        methods      = {f.method for f in features if f.method}
-        if methods == {"direct"}:
-            method_tag = "direct"
-        elif "tblastn" in methods and "direct" not in methods:
-            method_tag = "tblastn"
-        elif methods:
-            method_tag = "tblastn + direct"
-        else:
-            method_tag = "none"
-
-        if query_id in error_map:
-            health = _t("failed").lower()
-        elif total_count == 0:
-            health = _t("empty").lower()
-        elif needs_review:
-            health = _t("needs_review").lower()
-        else:
-            health = _t("passed").lower()
-
-        overview_rows.append({
-            "record_id": query_id,
-            "health": health,
-            "passed": ok_count,
-            "total": total_count,
-            "needs_review": needs_review,
-            "method": method_tag,
-            "error": error_map.get(query_id, ""),
-        })
-
-    overview_df = pd.DataFrame(overview_rows)
-    f_col1, f_col2, f_col3 = st.columns([2, 2, 1])
-    all_filter = _t("all")
-    health_options = [all_filter] + sorted(overview_df["health"].unique().tolist())
-    selected_health = f_col1.selectbox(_t("health_filter"), health_options)
-    search_text = f_col2.text_input(_t("search_record"))
-    show_details = f_col3.checkbox(_t("open_all"), value=False)
-
-    visible_overview = overview_df.copy()
-    if selected_health != all_filter:
-        visible_overview = visible_overview[visible_overview["health"] == selected_health]
-    if search_text:
-        visible_overview = visible_overview[
-            visible_overview["record_id"].str.contains(search_text, case=False, na=False)
-        ]
-
-    st.dataframe(visible_overview, width="stretch", hide_index=True)
-
-    st.subheader(_t("record_details"))
-    visible_ids = set(visible_overview["record_id"].tolist())
-    visible_results = [
-        (query_id, features)
-        for query_id, features in all_results
-        if query_id in visible_ids
-    ]
-
-    def _record_method_bucket(query_id: str, features: List[LiftedFeature]) -> str:
-        if query_id in error_map or not features:
-            return "other"
-        methods = {feature.method for feature in features if feature.method}
-        if methods == {"direct"}:
-            return "direct"
-        if methods == {"tblastn"}:
-            return "tblastn"
-        if "direct" in methods and "tblastn" in methods:
-            return "mixed"
-        return "other"
-
-    def _boundary_check(feature: LiftedFeature) -> str:
-        checks = []
-        for label, value in (
-            ("start", feature.has_start_codon),
-            ("stop", feature.has_stop_codon),
-            ("frame", feature.in_frame),
-        ):
-            if value is not None:
-                checks.append(f"{label}:{'yes' if value else 'no'}")
-        return ", ".join(checks)
-
-    def _rescue_action(feature: LiftedFeature) -> str:
-        if feature.rescue_action:
-            return feature.rescue_action
-        if feature.rescue_target and feature.rescue_offset is not None:
-            return f"{feature.rescue_target} {feature.rescue_offset:+d} bp"
-        if feature.rescue_offset is not None:
-            return f"start {feature.rescue_offset:+d} bp"
-        return ""
-
-    def _display_gene(feature: LiftedFeature) -> str:
-        return ref_name_map.get(feature.name, feature.name) if ref_name_map else feature.name
-
-    def _export_key(query_id: str, feature: LiftedFeature, gene: str) -> str:
-        return "|".join(
-            str(value)
-            for value in (
-                query_id,
-                gene,
-                feature.status,
-                feature.query_start,
-                feature.query_end,
-                feature.strand,
-            )
-        )
-
-    manually_approvable_statuses = {
-        "invalid_boundaries",
-        "low_coverage",
-        "low_identity",
-        "low_coverage_and_identity",
-    }
-
-    def _approval_label(query_id: str, feature: LiftedFeature, gene: str) -> str:
-        return (
-            f"{query_id} | {gene} | {_t(f'status_{feature.status}')} | "
-            f"{feature.query_start}-{feature.query_end} | "
-            f"cov {_format_fraction_percent(feature.coverage)} | "
-            f"id {_format_percent(feature.identity)}"
-        )
-
-    def _approved_export_keys() -> set:
-        return set(st.session_state.get("approved_export_features", []))
-
-    def _save_approved_export_keys(keys: set) -> None:
-        st.session_state.approved_export_features = sorted(keys)
-
-    def _render_record_expander(query_id: str, features: List[LiftedFeature]) -> None:
-        ok_count     = sum(1 for f in features if f.status in GOOD_STATUSES)
-        total_count  = len(features)
-        needs_review = sum(1 for f in features if f.status in REVIEW_STATUSES)
-
-        if query_id in error_map:
-            label = f"{_t('failed')} · {query_id}"
-        elif total_count == 0:
-            label = f"{_t('empty')} · {query_id}"
-        elif needs_review:
-            label = f"{_t('needs_review')} · {query_id} · {ok_count}/{total_count} passed"
-        else:
-            label = f"{_t('passed')} · {query_id} · {ok_count}/{total_count} passed"
-
-        with st.expander(label, expanded=show_details or query_id in error_map):
-            if query_id in error_map:
-                st.error(error_map[query_id])
-                return
-            if not features:
-                st.warning(_t("no_features"))
-                return
-            rec_rows = []
-            for lf in features:
-                display_name = _display_gene(lf)
-                rec_rows.append({
-                    "status":    _status_text(lf.status),
-                    "name":      display_name,
-                    "raw_name":  lf.source_name or "",
-                    "start":     lf.query_start,
-                    "end":       lf.query_end,
-                    "coverage":  _format_fraction_percent(lf.coverage),
-                    "identity":  _format_percent(lf.identity),
-                    "method":    lf.method,
-                    "boundary_check": _boundary_check(lf),
-                    "rescue_action": _rescue_action(lf),
-                    "approved_for_fasta": (
-                        "yes"
-                        if _export_key(query_id, lf, display_name) in _approved_export_keys()
-                        else ""
-                    ),
-                })
-            rec_df = pd.DataFrame(rec_rows)
-            for method in _ordered_methods(rec_df["method"].dropna().unique().tolist()):
-                method_df = rec_df[rec_df["method"] == method]
-                if method_df.empty:
-                    continue
-
-                st.markdown(f"##### {_method_section_label(method)} ({len(method_df)})")
-                if method == "tblastn" and method_df["status"].str.contains("Invalid boundary", na=False).any():
-                    st.caption(
-                        "Invalid boundary means tblastn found a strong protein match, "
-                        "but the extracted CDS did not pass start/stop/frame checks. "
-                        "In boundary_check, start means ATG at the beginning, "
-                        "stop means TAA/TAG/TGA at the end, and frame means the "
-                        "CDS length is divisible by 3. rescue_action shows which "
-                        "boundary was moved, for example `start -12 bp` or `stop +6 bp`."
-                    )
-                review_df = method_df[
-                    method_df["status"].str.startswith(f"{_t('tone_review')} ·", na=False)
-                ]
-                pass_df = method_df[
-                    method_df["status"].str.startswith(f"{_t('tone_pass')} ·", na=False)
-                ]
-                other_df = method_df.drop(review_df.index.union(pass_df.index))
-
-                if not review_df.empty:
-                    st.caption(_t("needs_review"))
-                    review_candidates = [
-                        lf for lf in features
-                        if lf.method == method
-                        and lf.status in manually_approvable_statuses
-                        and lf.sequence
-                    ]
-                    if review_candidates:
-                        approved_keys = _approved_export_keys()
-                        selected_keys = set()
-                        with st.container(border=True):
-                            for idx, lf in enumerate(review_candidates):
-                                gene = _display_gene(lf)
-                                key = _export_key(query_id, lf, gene)
-                                checked = st.checkbox(
-                                    _approval_label(query_id, lf, gene),
-                                    value=key in approved_keys,
-                                    key=(
-                                        f"approve_export_{query_id}_{method}_{idx}_"
-                                        f"{lf.status}_{lf.query_start}_{lf.query_end}"
-                                    ),
-                                )
-                                if checked:
-                                    selected_keys.add(key)
-
-                        approve_col, clear_col = st.columns([2, 1])
-                        if approve_col.button(
-                            _t("approve_for_fasta"),
-                            key=f"approve_selected_export_{query_id}_{method}",
-                            width="stretch",
-                        ):
-                            record_candidate_keys = {
-                                _export_key(query_id, lf, _display_gene(lf))
-                                for lf in review_candidates
-                            }
-                            approved_keys.difference_update(record_candidate_keys)
-                            approved_keys.update(selected_keys)
-                            _save_approved_export_keys(approved_keys)
-                            st.rerun()
-                        record_candidate_keys = {
-                            _export_key(query_id, lf, _display_gene(lf))
-                            for lf in review_candidates
-                        }
-                        if clear_col.button(
-                            _t("clear_approved_for_record"),
-                            key=f"clear_approved_export_{query_id}_{method}",
-                            width="stretch",
-                            disabled=not (approved_keys & record_candidate_keys),
-                        ):
-                            approved_keys.difference_update(record_candidate_keys)
-                            _save_approved_export_keys(approved_keys)
-                            st.rerun()
-                    st.dataframe(review_df, width="stretch", hide_index=True)
-                if not pass_df.empty:
-                    st.caption(_t("passed"))
-                    st.dataframe(pass_df, width="stretch", hide_index=True)
-                if not other_df.empty:
-                    st.caption("Other")
-                    st.dataframe(other_df, width="stretch", hide_index=True)
-
-    detail_sections = [
-        ("direct", "Direct extraction records"),
-        ("tblastn", "tblastn lifting records"),
-        ("mixed", "Mixed direct + tblastn records"),
-        ("other", "Other / errors / empty records"),
-    ]
-    for bucket, title in detail_sections:
-        bucket_results = [
-            (query_id, features)
-            for query_id, features in visible_results
-            if _record_method_bucket(query_id, features) == bucket
-        ]
-        st.markdown(f"### {title} ({len(bucket_results)})")
-        if not bucket_results:
-            st.caption("No records in this section for the current filter.")
-            continue
-        for query_id, features in bucket_results:
-            _render_record_expander(query_id, features)
-
-    st.divider()
-
-    # ── export section ────────────────────────────────────────────
-    st.subheader(_t("export"))
-    tab_tsv, tab_fasta = st.tabs([_t("tsv"), _t("fasta")])
-
-    # TSV tab
-    with tab_tsv:
-        st.markdown(_t("download_table"))
-        col_canon, col_raw = st.columns(2)
-
-        tsv_canonical = df.drop(columns=["sequence"]).to_csv(sep="\t", index=False)
-        col_canon.download_button(
-            _t("download_display"),
-            data=tsv_canonical,
-            file_name="viralift_canonical.tsv",
-            mime="text/tab-separated-values",
-            width="stretch",
-        )
-
-        df_raw = df.copy()
-        has_source = df_raw["source_name"].notna() & (df_raw["source_name"] != "")
-        df_raw.loc[has_source, "name"] = df_raw.loc[has_source, "source_name"]
-        tsv_raw = df_raw.drop(columns=["sequence"]).to_csv(sep="\t", index=False)
-        col_raw.download_button(
-            _t("download_raw"),
-            data=tsv_raw,
-            file_name="viralift_raw.tsv",
-            mime="text/tab-separated-values",
-            width="stretch",
-        )
-
-    # FASTA extraction tab
-    with tab_fasta:
-        st.markdown(_t("fasta_intro"))
-
-        # gene list: display names respect the use_ref_names toggle
-        if ref_name_map:
-            ref_gene_names = sorted({
-                ref_name_map.get(f.get("name"), f.get("name"))
-                for f in st.session_state.ref_features
-                if f.get("name")
-            })
-        else:
-            ref_gene_names = sorted({
-                f.get("name")
-                for f in st.session_state.ref_features
-                if f.get("name")
-            })
-
-        col_select, col_format = st.columns([3, 2])
-        selected_genes = col_select.multiselect(
-            _t("genes_to_extract"),
-            options=ref_gene_names,
-            default=ref_gene_names,
-        )
-        fasta_mode = col_format.radio(
-            _t("output_format"),
-            [_t("one_fasta"), _t("all_fasta")],
-        )
-
-        # quality filter
-        st.markdown(f"**{_t('quality_filter')}**")
-        qf_col1, qf_col2, qf_col3, qf_col4 = st.columns(4)
-        min_cov_export = qf_col1.slider(_t("min_coverage"), 0.0, 1.0, 0.5, 0.05)
-        min_id_export  = qf_col2.slider(_t("min_identity"),  0.0, 100.0, 0.0, 5.0)
-        include_rescued = qf_col3.checkbox(_t("include_rescued"), value=True)
-        include_extrapolated = qf_col4.checkbox(_t("include_extrapolated"), value=True)
-
-        accepted_statuses = {"ok", "direct"}
-        if include_rescued:
-            accepted_statuses.add("ok_rescued")
-        if include_extrapolated:
-            accepted_statuses.add("ok_extrapolated")
-
-        approved_review_keys = _approved_export_keys()
-        if approved_review_keys:
-            st.caption(_t("approved_export_count", count=len(approved_review_keys)))
-
-        def _passes_fasta_filters(query_id: str, feature: LiftedFeature, gene: str) -> bool:
-            if gene not in selected_genes or not feature.sequence:
-                return False
-            if _export_key(query_id, feature, gene) in approved_review_keys:
-                return True
-            if feature.status not in accepted_statuses:
-                return False
-            if feature.coverage is not None and feature.coverage < min_cov_export:
-                return False
-            if feature.identity is not None and feature.identity < min_id_export:
-                return False
-            return True
-
-        candidate_count = 0
-        for query_id, features in all_results:
-            for lf in features:
-                gene = _display_gene(lf)
-                if _passes_fasta_filters(query_id, lf, gene):
-                    candidate_count += 1
-        st.caption(_t("candidate_count", count=candidate_count))
-
-        if st.button(_t("generate_fasta"), type="primary"):
-            # build gene to sequences dict (keyed by display name)
-            gene_seqs: Dict[str, List[str]] = {g: [] for g in selected_genes}
-            skipped = 0
-
-            for query_id, features in all_results:
-                for lf in features:
-                    # resolve display name the same way as the gene list above
-                    gene = _display_gene(lf)
-                    if gene not in gene_seqs:
-                        continue
-                    if not _passes_fasta_filters(query_id, lf, gene):
-                        skipped += 1
-                        continue
-                    header = f">{query_id}|{gene}|{lf.query_start}|{lf.query_end}|{lf.strand}"
-                    gene_seqs[gene].append(f"{header}\n{lf.sequence}")
-
-            if fasta_mode == _t("all_fasta"):
-                all_seqs = "\n".join(
-                    seq for gene in selected_genes for seq in gene_seqs[gene]
-                )
-                st.download_button(
-                    _t("download_all_fasta"),
-                    data=all_seqs,
-                    file_name="all_genes.fasta",
-                    mime="text/plain",
-                    width="stretch",
-                )
-            else:
-                # one download button per gene
-                for gene in selected_genes:
-                    seqs = gene_seqs[gene]
-                    if not seqs:
-                        st.warning(_t("no_sequences", gene=gene))
-                        continue
-                    st.download_button(
-                        _t("gene_download", gene=gene, count=len(seqs)),
-                        data="\n".join(seqs),
-                        file_name=f"{gene}.fasta",
-                        mime="text/plain",
-                        key=f"dl_{gene}",
-                    )
-
-            if skipped:
-                st.caption(_t("skipped", count=skipped))
+    # Stateful tabs: only the open tab's content runs.
+    features_tab, records_tab, export_tab = st.tabs(
+        [_t("view_features"), _t("view_records"), _t("view_export")],
+        key="results_view",
+        on_change="rerun",
+    )
+    if records_tab.open:
+        with records_tab:
+            _render_records_view(all_results, rows, error_map)
+    elif export_tab.open:
+        with export_tab:
+            _render_export_view(rows, df, ref_name_map)
+    else:
+        with features_tab:
+            _render_features_view(rows)

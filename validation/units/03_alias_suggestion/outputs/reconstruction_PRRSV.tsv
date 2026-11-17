@@ -1,0 +1,12 @@
+canonical	temp_saved	precision_correct	wrong_gene	false_save	not_in_truth	precision_pct	recall_denom	recall_found	missed	recall_pct	parked
+ORF1a	22	12	2	2	6	54.5	15	12	3	80.0	5
+ORF1ab	0	0	0	0	0		0	0	0		7
+ORF1b	25	14	0	0	11	56.0	18	17	1	94.4	3
+ORF2a	14	14	0	0	0	100.0	16	15	1	93.8	6
+ORF2b	15	13	0	0	2	86.7	15	13	2	86.7	3
+ORF3	10	10	0	0	0	100.0	11	11	0	100.0	4
+ORF4	11	11	0	0	0	100.0	12	12	0	100.0	3
+ORF5	21	12	0	0	9	57.1	13	13	0	100.0	4
+ORF5a	0	0	0	0	0		0	0	0		5
+ORF6	16	13	0	1	2	81.2	14	14	0	100.0	2
+ORF7	8	8	0	0	0	100.0	8	8	0	100.0	2

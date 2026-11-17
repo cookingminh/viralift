@@ -7,9 +7,10 @@ from ui.services import _build_effective_lookup, _run_pipeline
 
 def stage_running():
     _render_page_intro(
-        _t("processing"),
+        _t("run_setup"),
         _t("running_title"),
         _t("running_body"),
+        step_note=_t("processing"),
     )
     progress = st.progress(0, text=_t("starting"))
     st.session_state.run_errors = []

@@ -1,0 +1,26 @@
+{
+  "_comment": "Paths are relative to app/data (git-ignored local GenBank files). `references` is a list: a multi-reference run only adds entries; single-reference runs use the first.",
+  "datasets": {
+    "prrs": {
+      "virus": "PRRSV",
+      "references": ["PRRS/PRRS_ref_test.gb"],
+      "query": "PRRS/PRRS_100seq_anno.gb",
+      "feature_level": "CDS",
+      "notes": "Overlapping ORFs; ORF1b is a -1 frameshift product with no ATG start of its own."
+    },
+    "fmd": {
+      "virus": "FMDV",
+      "references": ["FMD/FMD_ref_test.gb"],
+      "query": "FMD/FMD_100seq_anno.gb",
+      "feature_level": "mat_peptide",
+      "notes": "Single polyprotein; mature peptides, no codon check."
+    },
+    "ped": {
+      "virus": "PEDV",
+      "references": ["PED/PED_ref_1.gb"],
+      "query": "PED/PED_100seqs.gb",
+      "feature_level": "CDS",
+      "notes": "PED_ref_2.gb is available as a second reference for multi-reference runs."
+    }
+  }
+}

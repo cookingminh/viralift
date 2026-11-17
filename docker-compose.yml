@@ -21,3 +21,19 @@ services:
       # logs — persist run history and alias audit trail across rebuilds
       - ./logs:/viralift/logs
     restart: unless-stopped
+
+  # Validation runner: same engine as the image above, plus the validation suite.
+  # Not started by `docker compose up`; use the profile explicitly:
+  #   docker compose --profile validation build
+  #   docker compose --profile validation run --rm validation lifting_accuracy --label docker
+  validation:
+    build:
+      context: .
+      dockerfile: validation/docker/Dockerfile
+      args:
+        BASE_IMAGE: viralift-viralift:latest   # the image `docker compose build` produces here
+    profiles: ["validation"]
+    volumes:
+      - ./app/data:/viralift/app/data:ro
+      - ./validation/outputs:/viralift/validation/outputs
+      - ./.git:/viralift/.git:ro                # so the run manifest can record the commit

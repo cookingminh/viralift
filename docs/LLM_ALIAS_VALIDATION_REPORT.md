@@ -1,7 +1,7 @@
 # LLM Alias-Review Validation Report
 
 Report này tóm tắt validation cho tính năng **LLM-assisted alias review**
-(`app/src/llm/`), dựa trên script tại `app/validation/07_llm_alias_validation/`.
+(`app/src/llm/`), dựa trên script tại `validation/units/07_llm_alias_validation/`.
 
 Dữ liệu dùng: tái sử dụng data PED đã validate ở `06_ped_validation/` (100
 query records, alias map đã được validate actionable coverage 99.39%) làm

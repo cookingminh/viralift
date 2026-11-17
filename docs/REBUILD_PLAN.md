@@ -1,11 +1,11 @@
 # ViraLift — Validation Notebook Rebuild Plan (Q1 paper)
 
-> **Index chuẩn = `app/validation/README.md`** (đã tổ chức lại theo output-list: descriptive
+> **Index chuẩn = `validation/units/README.md`** (đã tổ chức lại theo output-list: descriptive
 > 1–6 + analysis). Folder đánh số lại, lifting accuracy tách mỗi virus 1 notebook, denominator
 > dùng `summarize_evaluable` (lọc `name_match`). File này giữ để tra lịch sử gap/quyết định;
 > tên NB-xx bên dưới là số cũ trước khi reorg.
 
-Bối cảnh: toàn bộ notebook trong `app/validation/**` chưa từng được commit (`.gitignore` từng ignore cả cây, notebook local đã mất) — chỉ còn output archive. Để đạt reproducibility cho Q1, mỗi figure/table phải tái tạo được từ notebook. Các notebook dưới đây **scaffold khung chuẩn** (Purpose → Inputs → Run module thật → Metrics → Figures → Interpretation) và **gọi trực tiếp** helper cấp cao trong `app/validation/_shared/validation_utils.py` + module trong `app/src`.
+Bối cảnh: toàn bộ notebook trong `validation/units/**` chưa từng được commit (`.gitignore` từng ignore cả cây, notebook local đã mất) — chỉ còn output archive. Để đạt reproducibility cho Q1, mỗi figure/table phải tái tạo được từ notebook. Các notebook dưới đây **scaffold khung chuẩn** (Purpose → Inputs → Run module thật → Metrics → Figures → Interpretation) và **gọi trực tiếp** helper cấp cao trong `validation/_shared/validation_utils.py` + module trong `app/src`.
 
 ## Đã scaffold (mới)
 

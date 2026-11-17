@@ -11,7 +11,8 @@ import streamlit as st
 
 from gbcrawler import fetch as fetch_mod
 from gbcrawler import split as split_mod
-from ui.components import _render_context_panel, _render_page_intro
+from ui.components import _card, _render_page_intro, _render_section_title, _render_stats
+from ui.guide import _open_guide
 from ui.state import REGISTRY_PATH, ROOT
 
 
@@ -24,6 +25,15 @@ FALLBACK_VIRUSES = {
     "FMDV": "Foot-and-mouth disease virus",
     "PEDV": "Porcine epidemic diarrhea virus",
 }
+
+BY_QUERY = "By NCBI query"
+BY_ACCESSION = "By accession list"
+
+
+def _sync_crawler_credentials() -> None:
+    """Copy the NCBI inputs into plain state so they survive leaving this page."""
+    st.session_state.crawler_email_value = st.session_state.get("crawler_email_input", "")
+    st.session_state.crawler_api_key_value = st.session_state.get("crawler_api_key_input", "")
 
 
 def _virus_options(registry_path: Path) -> Dict[str, str]:
@@ -117,142 +127,163 @@ def _use_species_file_as_query(file_path: Path, label: str) -> None:
     st.toast(f"Selected `{file_path.name}` as query input.")
 
 
+def _render_query_builder(viruses: Dict[str, str]) -> str:
+    top_left, top_right = st.columns([2, 1])
+    with top_left:
+        labels = list(viruses.keys()) + ["Other / custom"]
+        selected_virus = st.selectbox("Virus", labels, key="crawler_virus")
+        if selected_virus == "Other / custom":
+            organism = st.text_input(
+                "NCBI organism name",
+                placeholder="e.g. Classical swine fever virus",
+                key="crawler_custom_organism",
+            )
+        else:
+            organism = viruses[selected_virus]
+            st.caption(f'NCBI organism query: `"{organism}"[Organism]`')
+    with top_right:
+        dataset_type = st.selectbox(
+            "Dataset type",
+            ["Complete genomes", "Gene records / fragments", "Both"],
+            key="crawler_dataset_type",
+        )
+
+    st.markdown("**Optional filters**")
+    f1, f2, f3 = st.columns(3)
+    with f1:
+        use_len = st.checkbox("Length range", key="crawler_use_length")
+        length = None
+        if use_len:
+            length = st.slider(
+                "Sequence length",
+                0,
+                35000,
+                (14000, 16000),
+                step=500,
+                key="crawler_length",
+            )
+    with f2:
+        use_date = st.checkbox("Publication date", key="crawler_use_date")
+        dates = None
+        if use_date:
+            picked_dates = st.date_input(
+                "Date range",
+                value=(date(2020, 1, 1), date.today()),
+                max_value=date.today(),
+                key="crawler_dates",
+            )
+            if isinstance(picked_dates, (tuple, list)) and len(picked_dates) == 2:
+                dates = picked_dates
+    with f3:
+        region_choice = st.selectbox(
+            "Country",
+            ["Any (global)", "Vietnam", "Custom country…"],
+            key="crawler_region_choice",
+        )
+        region = ""
+        if region_choice == "Vietnam":
+            region = "Vietnam"
+        elif region_choice == "Custom country…":
+            region = st.text_input("Country name", placeholder="e.g. China")
+        if region:
+            st.caption(
+                "⚠️ Country filter is text-based and approximate on nuccore. "
+                "For exact geographic subsets, filter by the /country "
+                "qualifier after download (or use NCBI Virus)."
+            )
+
+    extra = st.text_input(
+        "Extra NCBI condition",
+        placeholder='e.g. NOT partial[Title]',
+        key="crawler_extra",
+    )
+    query = build_ncbi_query(organism, dataset_type, length, dates, region, extra)
+
+    with st.expander("Edit the query manually"):
+        use_manual_query = st.checkbox(
+            "Use manual query override",
+            value=False,
+            key="crawler_use_manual_query",
+            help="Leave this off to use the query built from the virus and filters above.",
+        )
+        manual_query = st.text_area(
+            "Override query",
+            value=query,
+            height=90,
+            key="crawler_manual_query",
+            disabled=not use_manual_query,
+        )
+        if use_manual_query and manual_query.strip():
+            query = manual_query.strip()
+
+    st.markdown("**NCBI query preview**")
+    st.code(query or "No query yet.", language="text")
+    return query
+
+
 def page_data_crawler() -> None:
     _render_page_intro(
-        "Data preparation",
-        "Crawl GenBank records from NCBI",
+        "Data crawler",
+        "Fetch genomes from NCBI",
         (
             "Build a GenBank dataset from NCBI, split it by virus, then send "
-            "one species file into the ViraLift pipeline as query input."
+            "one species file into the pipeline as query input."
         ),
         show_stages=False,
+        guide=_open_guide,
     )
 
     registry_path = REGISTRY_PATH
     viruses = _virus_options(registry_path)
 
-    email = st.session_state.get("crawler_email_value") or st.session_state.get("crawler_email_input", "")
-    api_key = st.session_state.get("crawler_api_key_value") or st.session_state.get("crawler_api_key_input", "")
-
-    with st.expander("Advanced NCBI settings", expanded=False):
-        db = st.text_input("Database", value="nuccore", key="crawler_db")
-        out_dir = st.text_input(
-            "Output folder",
-            value=str(DEFAULT_OUT_DIR),
-            key="crawler_out_dir_input",
+    with _card("ncbi"):
+        with st.container(horizontal=True, horizontal_alignment="distribute", vertical_alignment="top"):
+            _render_section_title("NCBI account", "Entrez requires an email; an API key raises the rate limit.")
+            with st.popover("Advanced settings", icon=":material/tune:"):
+                db = st.text_input("Database", value="nuccore", key="crawler_db")
+                out_dir = st.text_input(
+                    "Output folder",
+                    value=str(DEFAULT_OUT_DIR),
+                    key="crawler_out_dir_input",
+                )
+                use_ledger = st.checkbox("Use dedup ledger", value=True, key="crawler_use_ledger")
+                ledger_path = st.text_input(
+                    "Ledger file",
+                    value=str(DEFAULT_LEDGER),
+                    disabled=not use_ledger,
+                    key="crawler_ledger_path",
+                )
+        email_col, key_col = st.columns(2)
+        email = email_col.text_input(
+            "NCBI email",
+            value=st.session_state.get("crawler_email_value", ""),
+            key="crawler_email_input",
+            placeholder="you@lab.org",
+            on_change=_sync_crawler_credentials,
         )
-        use_ledger = st.checkbox("Use dedup ledger", value=True, key="crawler_use_ledger")
-        ledger_path = st.text_input(
-            "Ledger file",
-            value=str(DEFAULT_LEDGER),
-            disabled=not use_ledger,
-            key="crawler_ledger_path",
+        api_key = key_col.text_input(
+            "NCBI API key",
+            value=st.session_state.get("crawler_api_key_value", ""),
+            key="crawler_api_key_input",
+            type="password",
+            placeholder="optional",
+            on_change=_sync_crawler_credentials,
         )
-
-    st.subheader("1. Build input dataset")
-    mode = st.radio(
-        "Input source",
-        ["By NCBI query", "By accession list"],
-        horizontal=True,
-        label_visibility="collapsed",
-        key="crawler_mode",
-    )
 
     query = ""
     accessions: List[str] = []
-
-    with st.container(border=True):
-        if mode == "By NCBI query":
-            top_left, top_right = st.columns([2, 1])
-            with top_left:
-                labels = list(viruses.keys()) + ["Other / custom"]
-                selected_virus = st.selectbox("Virus", labels, key="crawler_virus")
-                if selected_virus == "Other / custom":
-                    organism = st.text_input(
-                        "NCBI organism name",
-                        placeholder="e.g. Classical swine fever virus",
-                        key="crawler_custom_organism",
-                    )
-                else:
-                    organism = viruses[selected_virus]
-                    st.caption(f'NCBI organism query: `"{organism}"[Organism]`')
-            with top_right:
-                dataset_type = st.selectbox(
-                    "Dataset type",
-                    ["Complete genomes", "Gene records / fragments", "Both"],
-                    key="crawler_dataset_type",
-                )
-
-            st.markdown("**Optional filters**")
-            f1, f2, f3 = st.columns(3)
-            with f1:
-                use_len = st.checkbox("Length range", key="crawler_use_length")
-                length = None
-                if use_len:
-                    length = st.slider(
-                        "Sequence length",
-                        0,
-                        35000,
-                        (14000, 16000),
-                        step=500,
-                        key="crawler_length",
-                    )
-            with f2:
-                use_date = st.checkbox("Publication date", key="crawler_use_date")
-                dates = None
-                if use_date:
-                    picked_dates = st.date_input(
-                        "Date range",
-                        value=(date(2020, 1, 1), date.today()),
-                        max_value=date.today(),
-                        key="crawler_dates",
-                    )
-                    if isinstance(picked_dates, (tuple, list)) and len(picked_dates) == 2:
-                        dates = picked_dates
-            with f3:
-                region_choice = st.selectbox(
-                    "Country",
-                    ["Any (global)", "Vietnam", "Custom country…"],
-                    key="crawler_region_choice",
-                )
-                region = ""
-                if region_choice == "Vietnam":
-                    region = "Vietnam"
-                elif region_choice == "Custom country…":
-                    region = st.text_input("Country name", placeholder="e.g. China")
-                if region:
-                    st.caption(
-                        "⚠️ Country filter is text-based and approximate on nuccore. "
-                        "For exact geographic subsets, filter by the /country "
-                        "qualifier after download (or use NCBI Virus)."
-                    )
-
-            extra = st.text_input(
-                "Extra NCBI condition",
-                placeholder='e.g. NOT partial[Title]',
-                key="crawler_extra",
-            )
-            query = build_ncbi_query(organism, dataset_type, length, dates, region, extra)
-
-            with st.expander("Advanced: edit query manually"):
-                use_manual_query = st.checkbox(
-                    "Use manual query override",
-                    value=False,
-                    key="crawler_use_manual_query",
-                    help="Leave this off to use the query built from the virus and filters above.",
-                )
-                manual_query = st.text_area(
-                    "Override query",
-                    value=query,
-                    height=90,
-                    key="crawler_manual_query",
-                    disabled=not use_manual_query,
-                )
-                if use_manual_query and manual_query.strip():
-                    query = manual_query.strip()
-
-            st.markdown("**NCBI query preview**")
-            st.code(query or "No query yet.", language="text")
+    with _card("crawl_build"):
+        _render_section_title("Build the input dataset", "Search NCBI by organism and filters, or paste accessions.", step=1)
+        mode = st.segmented_control(
+            "Input source",
+            [BY_QUERY, BY_ACCESSION],
+            default=BY_QUERY,
+            required=True,
+            label_visibility="collapsed",
+            key="crawler_mode",
+        )
+        if mode == BY_QUERY:
+            query = _render_query_builder(viruses)
         else:
             uploaded = st.file_uploader("Accession file (.txt/.csv)", type=["txt", "csv"])
             pasted = st.text_area(
@@ -278,11 +309,21 @@ def page_data_crawler() -> None:
 
     current_signature = _crawl_signature(mode, query, accessions, db, int(retmax))
 
-    st.subheader("2. Preview and crawl")
-    count_col, crawl_col = st.columns(2)
-    count_disabled = mode != "By NCBI query"
-    if count_col.button("Count records", disabled=count_disabled, width="stretch"):
-        if not _need_email(email):
+    with _card("crawl_run"):
+        _render_section_title("Preview and crawl", "Check the match count before downloading.", step=2)
+        with st.container(horizontal=True):
+            count_clicked = st.button(
+                "Count records",
+                icon=":material/tag:",
+                disabled=mode != BY_QUERY,
+            )
+            crawl_clicked = st.button(
+                "Crawl GenBank and split",
+                icon=":material/cloud_download:",
+                type="primary",
+            )
+
+        if count_clicked and not _need_email(email):
             if not query.strip():
                 st.error("Build or enter an NCBI query first.")
             else:
@@ -300,19 +341,18 @@ def page_data_crawler() -> None:
                         st.session_state.crawler_count_signature = None
                         st.error(f"NCBI count failed: {exc}")
 
-    if (
-        st.session_state.crawler_count_result is not None
-        and st.session_state.get("crawler_count_signature") == current_signature
-    ):
-        count = st.session_state.crawler_count_result
-        tone = st.warning if count > 50000 else st.success
-        tone(f"{count:,} record(s) match this query.")
+        if (
+            st.session_state.crawler_count_result is not None
+            and st.session_state.get("crawler_count_signature") == current_signature
+        ):
+            count = st.session_state.crawler_count_result
+            tone = st.warning if count > 50000 else st.success
+            tone(f"{count:,} record(s) match this query.")
 
-    if crawl_col.button("Crawl GenBank and split", type="primary", width="stretch"):
-        if not _need_email(email):
-            if mode == "By NCBI query" and not query.strip():
+        if crawl_clicked and not _need_email(email):
+            if mode == BY_QUERY and not query.strip():
                 st.error("Build or enter an NCBI query first.")
-            elif mode == "By accession list" and not accessions:
+            elif mode == BY_ACCESSION and not accessions:
                 st.error("Provide at least one accession.")
             else:
                 out = Path(out_dir)
@@ -322,7 +362,7 @@ def page_data_crawler() -> None:
                     fetch_mod.configure(email, api_key or None)
                     progress = st.progress(0.0, text="Starting NCBI download...")
                     with open(raw_path, "w", encoding="utf-8") as handle:
-                        if mode == "By NCBI query":
+                        if mode == BY_QUERY:
                             fetched = fetch_mod.fetch_from_query(
                                 query,
                                 handle,
@@ -364,44 +404,48 @@ def page_data_crawler() -> None:
         st.info("The crawler output below belongs to a previous query. Run `Crawl GenBank and split` again for the current query.")
         return
 
-    st.subheader("3. Use crawler output")
-    _render_context_panel([
-        ("Total fetched", summary["total"]),
-        ("New records", summary["new"]),
-        ("Duplicate in batch", summary["dup_in_batch"]),
-        ("Duplicate in ledger", summary["dup_in_ledger"]),
-    ])
+    with _card("crawl_output"):
+        _render_section_title("Use the crawler output", "Download a species file or send it to the pipeline.", step=3)
+        _render_stats([
+            {"label": "Total fetched", "value": summary["total"]},
+            {"label": "New records", "value": summary["new"], "tone": "primary"},
+            {"label": "Duplicate in batch", "value": summary["dup_in_batch"]},
+            {"label": "Duplicate in ledger", "value": summary["dup_in_ledger"]},
+        ])
 
-    if summary["counts"]:
-        st.markdown("**Species files**")
-        for key, count in sorted(summary["counts"].items()):
-            file_path = Path(summary["files"][key])
-            label = key if key != split_mod.UNMATCHED else "Unmatched records"
-            c1, c2, c3 = st.columns([3, 1, 1])
-            c1.write(f"**{label}** · {count} record(s) · `{file_path.name}`")
-            if file_path.exists():
-                c2.download_button(
-                    "Download .gb",
-                    data=file_path.read_bytes(),
-                    file_name=file_path.name,
-                    key=f"crawler_download_{file_path.name}",
-                    width="stretch",
-                )
-                c3.button(
-                    "Use as query",
-                    key=f"crawler_use_{file_path.name}",
-                    width="stretch",
-                    on_click=_use_species_file_as_query,
-                    args=(file_path, label),
-                )
+        if summary["counts"]:
+            st.markdown("**Species files**")
+            for index, (key, count) in enumerate(sorted(summary["counts"].items())):
+                file_path = Path(summary["files"][key])
+                label = key if key != split_mod.UNMATCHED else "Unmatched records"
+                with _card(f"species_{index}", horizontal=True, vertical_alignment="center"):
+                    st.markdown(f"**{label}** · {count} record(s) · `{file_path.name}`")
+                    if file_path.exists():
+                        st.download_button(
+                            "Download .gb",
+                            data=file_path.read_bytes(),
+                            file_name=file_path.name,
+                            icon=":material/download:",
+                            key=f"crawler_download_{file_path.name}",
+                            on_click="ignore",
+                        )
+                        st.button(
+                            "Use as query",
+                            icon=":material/arrow_forward:",
+                            type="primary",
+                            key=f"crawler_use_{file_path.name}",
+                            on_click=_use_species_file_as_query,
+                            args=(file_path, label),
+                        )
 
-    manifest_path = Path(summary["manifest"])
-    if manifest_path.exists():
-        with st.expander("manifest.csv", expanded=False):
-            manifest = pd.read_csv(manifest_path)
-            st.dataframe(manifest, width="stretch", height=320)
-            st.download_button(
-                "Download manifest.csv",
-                data=manifest_path.read_bytes(),
-                file_name="manifest.csv",
-            )
+        manifest_path = Path(summary["manifest"])
+        if manifest_path.exists():
+            with st.expander("manifest.csv", expanded=False):
+                manifest = pd.read_csv(manifest_path)
+                st.dataframe(manifest, width="stretch", height=320)
+                st.download_button(
+                    "Download manifest.csv",
+                    data=manifest_path.read_bytes(),
+                    file_name="manifest.csv",
+                    on_click="ignore",
+                )

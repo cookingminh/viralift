@@ -493,7 +493,7 @@ Never sends sequence data or full GenBank records — only raw qualifier text, f
 - `skip` at **any** confidence → pre-fills `Skip this run` (there's no risk in leaving a row unresolved, so this doesn't need the confidence gate).
 - Anything else (e.g. a `save_alias`/`ignore` recommendation at `low` confidence) → no pre-fill; falls back to whatever the deterministic scorer already had. Legacy cached `move_to_ambiguous` responses are treated as `ignore`/Exclude.
 
-Details, per-case results, and the validation script live in `app/validation/07_llm_alias_validation/` and `docs/LLM_ALIAS_VALIDATION_REPORT.md`.
+Details, per-case results, and the validation script live in `validation/units/07_llm_alias_validation/` and `docs/LLM_ALIAS_VALIDATION_REPORT.md`.
 
 ---
 
