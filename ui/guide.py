@@ -28,7 +28,9 @@ PAGE_GUIDES: Dict[str, Dict[str, object]] = {
         "steps": [
             ("Add the reference", (
                 "One GenBank record of the same virus with good CDS or mat_peptide annotation. "
-                "Its genes decide what is searched for and which names appear in the output."
+                "Its genes decide what is searched for and which names appear in the output. "
+                "Every reference you run with is saved: next time pick it from the list, or just "
+                "add the query and the saved reference for its virus is selected for you."
             )),
             ("Add the query records", (
                 "A `.gb` / `.gbk` file with one or many records. Records that already carry gene "

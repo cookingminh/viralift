@@ -3,8 +3,8 @@
 Each test runs the real app script with streamlit.testing's AppTest and checks
 that a workspace or wizard step renders without an exception. The data-backed
 tests use the git-ignored sample genomes in app/data/ and tblastn; they skip
-when either is missing. Logging is stubbed and alias edits go to a temporary
-copy, so the tests never touch logs/ or app/config/.
+when either is missing. Logging is stubbed, alias edits go to a temporary copy
+and saved references to tmp_path, so the tests never touch logs/ or app/config/.
 """
 import json
 import shutil
@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 from streamlit.testing.v1 import AppTest
 
+import ui.reference_library
 import ui.services
 import ui.stages.resolve
 from app.src.alias.alias_bootstrap import build_seed_alias_config_from_ref
@@ -37,7 +38,8 @@ requires_sample_data = pytest.mark.skipif(
 
 
 @pytest.fixture(autouse=True)
-def _quiet_side_effects(monkeypatch):
+def _quiet_side_effects(monkeypatch, tmp_path):
+    monkeypatch.setattr(ui.reference_library, "REFERENCE_DIR", tmp_path / "references")
     for name in ("log_run_start", "log_run_complete", "log_alias_added", "log_canonical_added"):
         monkeypatch.setattr(ui.services, name, lambda *args, **kwargs: None)
     monkeypatch.setattr(ui.stages.resolve, "log_session_decisions", lambda *args, **kwargs: None)
@@ -198,3 +200,20 @@ def test_review_step_maps_a_name_and_runs_to_results(prrs_run, tmp_path):
     assert "glycoprotein five" in saved["canonical_names"]["ORF5"]
     assert "gp-five envelope" not in saved["canonical_names"]["ORF5"]
     assert Path(prrs_run["alias_config_path"]).read_text(encoding="utf-8") == original_config
+
+
+@requires_sample_data
+def test_query_only_run_uses_the_saved_reference_for_its_virus(prrs_run):
+    # A PRRSV reference saved by an earlier run; this time only the query is given.
+    ref_record = prrs_run["ref_record"]
+    ui.reference_library.save_reference(REF_FILE, ref_record, "PRRSV", "CDS", len(prrs_run["ref_features"]))
+
+    at = _app(crawler_query_path=str(QUERY_FILES[0]))
+    at.run()
+    _assert_clean(at)
+    assert at.selectbox(key="ref_choice").value == ref_record.id
+
+    next(button for button in at.button if button.label == "Continue").click().run()
+    _assert_clean(at)
+    assert at.session_state.stage != "upload"
+    assert at.session_state.ref_saved_id == ref_record.id

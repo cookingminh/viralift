@@ -1,8 +1,11 @@
-# Step 1 · Setup — upload reference + query and configure the run.
+# Step 1 · Setup — pick the reference (saved or uploaded) and the query, and
+# configure the run. The query is read first: the virus it is detected as
+# decides which saved reference to suggest (ui/reference_library.py).
 import html
 import streamlit as st
 import tempfile
 from pathlib import Path
+from typing import Dict, Optional, Tuple
 from app.src.alias.alias_bootstrap import build_seed_alias_config_from_ref
 from app.src.features.ref_loader import prepare_reference_features
 from app.src.io.genbank_parser import load_genbank_records, load_single_genbank
@@ -11,12 +14,129 @@ from ui.components import _card, _render_callout, _render_page_intro, _render_se
 from ui.guide import _open_guide
 from ui.i18n import _t
 from ui.services import _load_excluded_names, _record_metadata_candidates, _save_upload, _scan_unknown_names, _scan_unknown_ref_names, _suggest_virus_name
+from ui.reference_library import (
+    DETECT_BYTES,
+    detect_virus_in_bytes,
+    list_references,
+    reference_file,
+    remove_reference,
+    suggest_reference,
+)
 from ui.state import REGISTRY_PATH
+
+
+UPLOAD_NEW = "__upload__"
+# (virus_name, records matched, records checked)
+VirusMatch = Tuple[str, int, int]
 
 
 def _clear_crawler_query() -> None:
     st.session_state.crawler_query_path = None
     st.session_state.crawler_query_label = ""
+
+
+def _forget_reference(ref_id: str) -> None:
+    remove_reference(ref_id)
+    st.session_state.ref_choice = UPLOAD_NEW
+
+
+def _query_virus(query_file, crawled_query_path: Optional[str]) -> Tuple[Optional[str], Optional[VirusMatch]]:
+    """(cache key, detected virus) for the current query; detection runs once per file."""
+    if query_file is not None:
+        key = f"upload:{getattr(query_file, 'file_id', None) or query_file.name}"
+    elif crawled_query_path:
+        key = f"path:{crawled_query_path}"
+    else:
+        return None, None
+    cache = st.session_state.query_virus_cache
+    if key not in cache:
+        try:
+            if query_file is not None:
+                head = query_file.getvalue()[:DETECT_BYTES]
+            else:
+                with open(crawled_query_path, "rb") as handle:
+                    head = handle.read(DETECT_BYTES)
+            cache[key] = detect_virus_in_bytes(head, REGISTRY_PATH)
+        except Exception as e:  # a convenience only: never block the upload
+            log_error("detecting query virus", e)
+            cache[key] = None
+    return key, cache[key]
+
+
+def _reference_label(entry: Dict) -> str:
+    return _t(
+        "ref_option",
+        virus=entry.get("virus_name") or _t("unknown_virus"),
+        id=entry["id"],
+        length=f"{entry.get('length', 0):,}",
+        genes=entry.get("genes", 0),
+    )
+
+
+def _render_reference_picker(query_key: Optional[str], query_virus: Optional[VirusMatch]):
+    """Saved-reference dropdown plus uploader. Returns (saved entry, uploaded file)."""
+    saved = list_references()
+    if not saved:
+        ref_file = st.file_uploader(
+            "Reference GenBank (.gb)", type=["gb", "gbk"], key="ref_upload", label_visibility="collapsed"
+        )
+        st.caption(_t("ref_saved_hint"))
+        return None, ref_file
+
+    by_id = {entry["id"]: entry for entry in saved}
+    suggestion = suggest_reference(query_virus[0] if query_virus else None, saved)
+    # Pre-select the suggestion once per query file, unless a reference was
+    # already uploaded by hand; after that the user's choice stands.
+    if (
+        suggestion
+        and st.session_state.ref_suggested_for != query_key
+        and not st.session_state.get("ref_upload")
+    ):
+        st.session_state.ref_choice = suggestion["id"]
+        st.session_state.ref_suggested_for = query_key
+    if st.session_state.get("ref_choice") not in (*by_id, UPLOAD_NEW):
+        st.session_state.ref_choice = UPLOAD_NEW
+
+    choice = st.selectbox(
+        _t("saved_reference"),
+        [*by_id, UPLOAD_NEW],
+        format_func=lambda value: _t("ref_upload_new") if value == UPLOAD_NEW else _reference_label(by_id[value]),
+        key="ref_choice",
+        label_visibility="collapsed",
+    )
+    if choice == UPLOAD_NEW:
+        ref_file = st.file_uploader(
+            "Reference GenBank (.gb)", type=["gb", "gbk"], key="ref_upload", label_visibility="collapsed"
+        )
+        if query_virus and not suggestion:
+            st.caption(_t("ref_none_for_virus", virus=query_virus[0]))
+        return None, ref_file
+
+    entry = by_id[choice]
+    if query_virus and entry.get("virus_name") and entry["virus_name"] != query_virus[0]:
+        _render_callout(
+            html.escape(_t("ref_virus_mismatch", ref_virus=entry["virus_name"], query_virus=query_virus[0])),
+            tone="warn",
+            icon="!",
+        )
+    elif suggestion and entry["id"] == suggestion["id"]:
+        _render_callout(
+            html.escape(_t("ref_suggested", virus=query_virus[0])),
+            tone="ok",
+            icon="✓",
+        )
+    with st.container(horizontal=True, horizontal_alignment="distribute", vertical_alignment="center"):
+        st.caption(entry.get("description", ""))
+        st.button(
+            _t("forget_reference"),
+            icon=":material/delete:",
+            type="tertiary",
+            key="forget_reference",
+            help=_t("forget_reference_help"),
+            on_click=_forget_reference,
+            args=(entry["id"],),
+        )
+    return entry, None
 
 
 def stage_upload():
@@ -28,9 +148,6 @@ def stage_upload():
     )
 
     col_ref, col_query = st.columns(2, gap="medium")
-    with col_ref, _card("ref"):
-        _render_section_title(_t("reference_record"), _t("reference_caption"))
-        ref_file = st.file_uploader("Reference GenBank (.gb)", type=["gb", "gbk"], label_visibility="collapsed")
     with col_query, _card("query"):
         _render_section_title(_t("query_records"), _t("query_caption"))
         crawled_query_path = st.session_state.get("crawler_query_path")
@@ -45,6 +162,13 @@ def stage_upload():
             query_file = None
         else:
             query_file = st.file_uploader("Query GenBank (.gb)", type=["gb", "gbk"], label_visibility="collapsed")
+        query_key, query_virus = _query_virus(query_file, crawled_query_path)
+        if query_virus:
+            virus, matched, checked = query_virus
+            st.caption(_t("query_detected", virus=virus, matched=matched, checked=checked))
+    with col_ref, _card("ref"):
+        _render_section_title(_t("reference_record"), _t("reference_caption"))
+        saved_ref, ref_file = _render_reference_picker(query_key, query_virus)
 
     with _card("options"):
         _render_section_title(_t("run_options"), _t("run_options_caption"))
@@ -63,11 +187,12 @@ def stage_upload():
         with st.expander(_t("file_requirements"), expanded=False):
             st.markdown(_t("file_requirements_body"))
 
-    ready = ref_file and (query_file or st.session_state.get("crawler_query_path"))
+    ready = (saved_ref or ref_file) and (query_file or st.session_state.get("crawler_query_path"))
     with st.container(horizontal=True, horizontal_alignment="distribute", vertical_alignment="center"):
         if ready:
+            ref_label = saved_ref["id"] if saved_ref else ref_file.name
             query_label = query_file.name if query_file else Path(st.session_state.crawler_query_path).name
-            st.caption(_t("ready_to_run", ref=ref_file.name, query=query_label))
+            st.caption(_t("ready_to_run", ref=ref_label, query=query_label))
         else:
             st.caption(_t("add_files_hint"))
         run_clicked = st.button(
@@ -84,7 +209,10 @@ def stage_upload():
 
         with st.spinner(_t("loading_files")):
             try:
-                ref_path = _save_upload(ref_file)
+                ref_path = reference_file(saved_ref) if saved_ref else _save_upload(ref_file)
+                # Remembered when the run starts (stages/running.py).
+                st.session_state.ref_source_path = str(ref_path)
+                st.session_state.ref_saved_id = saved_ref["id"] if saved_ref else None
                 if query_file:
                     query_path = _save_upload(query_file)
                 else:

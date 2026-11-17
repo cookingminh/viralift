@@ -1,8 +1,31 @@
 # Auto-split from the original monolithic streamlit_app.py.
 import streamlit as st
+from pathlib import Path
+from app.src.io.run_logger import log_error
 from ui.components import _render_page_intro
 from ui.i18n import _t
+from ui.reference_library import mark_used, save_reference
 from ui.services import _build_effective_lookup, _run_pipeline
+
+
+def _remember_reference() -> None:
+    """Keep this run's reference so the next run only needs the query file."""
+    source = st.session_state.get("ref_source_path")
+    if not source:
+        return
+    try:
+        if st.session_state.get("ref_saved_id"):
+            mark_used(st.session_state.ref_saved_id)
+        else:
+            save_reference(
+                Path(source),
+                st.session_state.ref_record,
+                st.session_state.virus_name,
+                st.session_state.ref_feature_type,
+                len(st.session_state.ref_features or []),
+            )
+    except OSError as e:  # never block a run over the convenience copy
+        log_error("saving reference", e)
 
 
 def stage_running():
@@ -14,6 +37,7 @@ def stage_running():
     )
     progress = st.progress(0, text=_t("starting"))
     st.session_state.run_errors = []
+    _remember_reference()
 
     effective_lookup = _build_effective_lookup(
         st.session_state.alias_lookup,
