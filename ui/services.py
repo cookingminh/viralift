@@ -141,9 +141,11 @@ def _scan_unknown_names(
     excluded_names: set,
 ) -> Dict[str, Dict]:
     """
-    Return a dict keyed by representative name for every feature group in query
-    records that needs user resolution because the name is completely unknown
-    (misses alias lookup entirely).
+    Return one entry per exact set of unresolved names in the query records
+    (order ignored), keyed by its first name, or by all of its names when
+    another set already uses that first name. ("P1", "capsid protein") and
+    ("capsid protein", "P1") are one row; ("capsid protein", "VP0") is another,
+    so a decision never silently covers a different annotation.
 
     Each value is:
         {
@@ -158,6 +160,7 @@ def _scan_unknown_names(
         - ALL candidates hit EXCLUDED: skip intentionally
     """
     result: Dict[str, Dict] = {}
+    key_by_names: Dict[frozenset, str] = {}
 
     for rec in query_records:
         selected_feature_type = select_feature_type(rec, alias_lookup)
@@ -203,16 +206,23 @@ def _scan_unknown_names(
             if not non_excluded_candidates:
                 continue
 
-            representative = non_excluded_candidates[0]
-
-            if representative not in result:
-                result[representative] = {
+            names = frozenset(normalize_text(v) for v in non_excluded_candidates)
+            key = key_by_names.get(names)
+            if key is None:
+                key = non_excluded_candidates[0]
+                if key in result:
+                    key = " · ".join(non_excluded_candidates)
+                base, suffix = key, 2
+                while key in result:
+                    key, suffix = f"{base} ({suffix})", suffix + 1
+                key_by_names[names] = key
+                result[key] = {
                     "records":   [],
                     "candidates": non_excluded_candidates,
                     "ambiguous": False,
                 }
-            if rec.id not in result[representative]["records"]:
-                result[representative]["records"].append(rec.id)
+            if rec.id not in result[key]["records"]:
+                result[key]["records"].append(rec.id)
 
     return result
 
