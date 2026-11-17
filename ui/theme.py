@@ -502,6 +502,7 @@ h1, h2, h3, h4 { letter-spacing: -0.015em; text-wrap: balance; }
 .vl-ctx-label { color: var(--vl-muted); white-space: nowrap; }
 .vl-ctx-value { font-family: var(--vl-mono); font-weight: 600; color: var(--vl-text); text-align: right; overflow-wrap: anywhere; min-width: 0; }
 .vl-sidebar-foot { font-size: 0.72rem; color: var(--vl-faint); line-height: 1.5; }
+.vl-sidebar-build { font-family: var(--vl-mono); margin-top: 0.45rem; }
 
 /* ── alias manager: virus list + danger button ──────────────────── */
 .st-key-alias_manager_virus [role="radiogroup"] { gap: 0.25rem; width: 100%; }

@@ -12,6 +12,7 @@ Run pipeline is a three-step wizard (see components.PIPELINE_STEPS):
     Results      running: pipeline runs; results: review + export
 """
 
+import os
 import sys
 from pathlib import Path
 
@@ -30,6 +31,7 @@ from ui.components import (
     _render_brand,
     _render_nav_label,
     _render_sidebar_context,
+    _render_sidebar_foot,
 )
 from ui.stages.upload import stage_upload
 from ui.stages.virus_review import stage_virus_review
@@ -55,6 +57,16 @@ def _mode_key(label: str) -> str:
 def _set_app_mode(mode: str) -> None:
     _sync_crawler_credentials()
     st.session_state.app_mode = mode
+
+
+def _build_label() -> str:
+    """Which build is running: the image's version stamp (set by CI), or
+    "source" when started with `streamlit run` from a checkout."""
+    label = f"ViraLift {os.environ.get('VIRALIFT_VERSION') or 'source'}"
+    commit = os.environ.get("VIRALIFT_COMMIT", "")
+    if commit and commit != "unknown":
+        label += f" · {commit[:7]}"
+    return label
 
 
 def _run_context() -> list:
@@ -106,7 +118,7 @@ with st.sidebar:
         _render_sidebar_context(_run_context())
 
     st.space("medium")
-    st.html(f"<div class='vl-sidebar-foot'>{_t('sidebar_theme_hint')}</div>")
+    _render_sidebar_foot(_t("sidebar_theme_hint"), _build_label())
 
 # route to current stage
 if st.session_state.app_mode == "Alias manager":
