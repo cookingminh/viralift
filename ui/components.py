@@ -267,6 +267,13 @@ def _render_sidebar_context(items: List[Tuple[str, object]]):
     st.html(f"<div class='vl-ctx'>{rows}</div>")
 
 
+def _render_sidebar_foot(hint: str, build: str):
+    st.html(
+        f"<div class='vl-sidebar-foot'>{_esc(hint)}"
+        f"<div class='vl-sidebar-build'>{_esc(build)}</div></div>"
+    )
+
+
 def _format_percent(value: Optional[float], digits: int = 1) -> str:
     if value is None:
         return "NA"

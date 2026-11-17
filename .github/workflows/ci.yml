@@ -1,0 +1,156 @@
+# CI/CD for ViraLift.
+#
+#   pull request  -> tests, then build the image and test inside it (nothing published)
+#   push to main  -> same, then publish ghcr.io/cookingminh/viralift:main and :sha-<commit>
+#   tag vX.Y.Z    -> same, then publish :X.Y.Z, :X.Y and :latest
+#
+# Releasing: set [project].version in pyproject.toml to X.Y.Z, merge to main,
+# then `git tag vX.Y.Z && git push origin vX.Y.Z`. The job refuses a tag that
+# does not match pyproject.toml, so a published version always means one thing.
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  IMAGE: ghcr.io/${{ github.repository }}
+
+jobs:
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: ui/requirements.lock
+
+      - name: Tag matches pyproject.toml version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          version=$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])")
+          if [ "$tag" != "$version" ]; then
+            echo "::error::tag v$tag does not match pyproject.toml version $version"
+            exit 1
+          fi
+
+      - name: Install BLAST+ (tblastn)
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ncbi-blast+
+
+      - name: Install Python dependencies
+        run: pip install -r ui/requirements.lock pytest==9.1.1
+
+      # Tests that need the git-ignored sample genomes in app/data skip here;
+      # run them locally before a release.
+      - name: Run tests
+        run: python -m pytest -q -rs app/src/tests validation/tests
+
+  image:
+    name: Docker image
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write
+    env:
+      PUBLISH: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: docker/setup-qemu-action@v4
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Image tags and labels
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.IMAGE }}
+          flavor: latest=false
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+            type=ref,event=branch
+            type=ref,event=pr
+            type=sha,format=short,prefix=sha-
+
+      # Build for this runner only and test the image itself, so what gets
+      # published is exactly what passed: same Python, packages and BLAST+.
+      - name: Build image for testing
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          load: true
+          tags: viralift:ci
+          build-args: |
+            VIRALIFT_VERSION=${{ steps.meta.outputs.version }}
+            VIRALIFT_COMMIT=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Test inside the image
+        run: |
+          docker run --rm --entrypoint tblastn viralift:ci -version
+          docker run --rm -e PIP_DISABLE_PIP_VERSION_CHECK=1 --entrypoint sh viralift:ci -c \
+            "pip install --quiet --root-user-action=ignore pytest==9.1.1 && python -m pytest -q -p no:cacheprovider app/src/tests"
+
+      - name: App starts and reports healthy
+        run: |
+          docker run -d --name viralift-ci -p 8501:8501 viralift:ci
+          for _ in $(seq 1 30); do
+            if curl -fsS http://localhost:8501/_stcore/health; then echo; exit 0; fi
+            sleep 2
+          done
+          docker logs viralift-ci
+          exit 1
+
+      - name: Log in to GHCR
+        if: env.PUBLISH == 'true'
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # amd64 for most PCs and servers, arm64 for Apple Silicon Macs.
+      - name: Publish multi-arch image
+        if: env.PUBLISH == 'true'
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VIRALIFT_VERSION=${{ steps.meta.outputs.version }}
+            VIRALIFT_COMMIT=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Summary
+        if: env.PUBLISH == 'true'
+        run: |
+          {
+            echo "### Published"
+            echo '```'
+            echo "${{ steps.meta.outputs.tags }}"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

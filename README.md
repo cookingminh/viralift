@@ -66,10 +66,17 @@ The three modes form one seamless flow:
 ```bash
 git clone https://github.com/cookingminh/viralift
 cd viralift
-docker compose up        # first build ~2 min
+docker compose pull      # download the published image, no build needed
+docker compose up -d
 ```
 
-Open **http://localhost:8501**. Rebuild after code changes: `docker compose up --build`. No `.env` is needed to run; add one only to enable the optional LLM alias review (see below).
+Open **http://localhost:8501**. The sidebar shows which version you are running. No `.env` is needed to run; add one only to enable the optional LLM alias review (see below).
+
+- **Update to the newest release:** `git pull && docker compose pull && docker compose up -d`
+- **Run a specific version**, e.g. to reproduce a published result: `VIRALIFT_IMAGE_TAG=0.2.0 docker compose up -d` (or put `VIRALIFT_IMAGE_TAG=0.2.0` in `.env`)
+- **Build from this checkout instead** (when changing the code): `docker compose up -d --build`
+
+Alias configs, outputs and logs stay in `app/config`, `output` and `logs` on your machine, so they survive image updates.
 
 ### Option 2 — Run locally
 
@@ -92,10 +99,37 @@ cp .env.example .env
 # edit .env:
 #   VIRALIFT_LLM_ENABLED=1
 #   OPENAI_API_KEY=...
-docker compose up --build
+docker compose up -d
 ```
 
 Only uncertain alias rows are sent for review; sequence data and full GenBank records are not included.
+
+## Releases and versions
+
+GitHub Actions (`.github/workflows/ci.yml`) tests every pull request and push, then publishes the image to GHCR:
+
+| Event | Image tags (`ghcr.io/cookingminh/viralift:<tag>`) |
+|---|---|
+| push to `main` | `main`, `sha-<commit>` |
+| tag `vX.Y.Z` | `X.Y.Z`, `X.Y`, `latest` |
+
+Each image pins everything that can change a result: the Python base image by digest, BLAST+ by its Debian version (`BLAST_DEB_VERSION` in the `Dockerfile`) and the Python packages by `ui/requirements.lock`. A given version therefore always runs the same software, on amd64 PCs and arm64 (Apple Silicon) Macs alike.
+
+**Citing a version.** Report the image tag and its digest, which never changes even if a tag is re-pushed:
+
+```bash
+docker inspect --format '{{index .RepoDigests 0}}' ghcr.io/cookingminh/viralift:0.2.0
+```
+
+Alias configs live outside the image (`app/config`) and change as people use the app, so report the alias config's fingerprint as well; the validation run manifest records it.
+
+**Making a release.**
+1. Set `version` in `pyproject.toml` to `X.Y.Z` and merge to `main`.
+2. `git tag vX.Y.Z && git push origin vX.Y.Z`. CI runs the tests, builds and publishes; it refuses a tag that does not match `pyproject.toml`.
+
+Tests that need the sample genomes in `app/data` (git-ignored) are skipped in CI, so run `pytest` locally before tagging.
+
+**Updating dependencies.** Edit `ui/requirements.txt`, run `tools/update_requirements_lock.sh`, run the tests and commit the lock on its own. Bump the base image digest (`PYTHON_IMAGE`) or `BLAST_DEB_VERSION` the same way. Do this now and then to pick up security fixes, and re-run the validation before releasing: a new BLAST+ can change lifting results.
 
 ## Output
 

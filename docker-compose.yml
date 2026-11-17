@@ -1,5 +1,11 @@
 services:
   viralift:
+    # Published by CI (.github/workflows/ci.yml); see "Releases and versions"
+    # in README.md. Defaults to the newest release; pin one with
+    # VIRALIFT_IMAGE_TAG (e.g. 0.2.0) in your shell or .env.
+    #   docker compose pull && docker compose up -d   # use the published image
+    #   docker compose up -d --build                  # build from this checkout
+    image: ghcr.io/cookingminh/viralift:${VIRALIFT_IMAGE_TAG:-latest}
     build: .
     # No .env needed to run. These default to LLM-off; Compose auto-substitutes
     # from an optional .env in this folder (or your shell) if you set them.
@@ -31,7 +37,7 @@ services:
       context: .
       dockerfile: validation/docker/Dockerfile
       args:
-        BASE_IMAGE: viralift-viralift:latest   # the image `docker compose build` produces here
+        BASE_IMAGE: ghcr.io/cookingminh/viralift:${VIRALIFT_IMAGE_TAG:-latest}   # the viralift image above
     profiles: ["validation"]
     volumes:
       - ./app/data:/viralift/app/data:ro
