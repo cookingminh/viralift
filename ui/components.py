@@ -1,137 +1,270 @@
-# Auto-split from the original monolithic streamlit_app.py.
+# Reusable HTML building blocks for the Streamlit UI. Every dynamic value is
+# passed through html.escape() before it reaches st.html.
 import html
 import streamlit as st
-from typing import Dict, List, Optional, Tuple
+from typing import Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 from ui.i18n import _t
 from ui.state import STATUS_TONE
 
 
-def _render_page_intro(kicker: str, title: str, body: str, show_stages: bool = True):
-    stages = [
-        (("upload",), _t("stage_files")),
-        (("virus_review", "bootstrap_alias"), _t("stage_setup")),
-        (("resolve",), _t("stage_name_review")),
-        (("running",), _t("stage_run_annotation")),
-        (("results",), _t("stage_results")),
-    ]
-    rail = ""
+# The run pipeline shows three steps; each internal stage belongs to one.
+PIPELINE_STEPS = (
+    ("upload",),
+    ("virus_review", "bootstrap_alias", "resolve"),
+    ("running", "results"),
+)
+PIPELINE_STEP_KEYS = ("step_setup", "step_review", "step_results")
+
+# Status -> visual tone. Passes that needed an adjustment get their own tone so
+# they stand out from clean passes without looking like failures.
+UI_STATUS_TONE = {
+    "ok": "ok",
+    "direct": "ok",
+    "ok_rescued": "info",
+    "ok_extrapolated": "info",
+    "ok_no_start_codon": "info",
+    "ok_gap_filled": "info",
+    "not_in_reference": "neutral",
+    "no_hit": "danger",
+    "translation_fail": "danger",
+}
+# Tone -> Streamlit theme colour for pill cells in st.dataframe. Named theme
+# colours resolve to the soft *BackgroundColor values in config.toml, so the
+# pills follow light/dark without any CSS.
+TONE_PILL_COLOR = {"ok": "green", "info": "blue", "warn": "orange", "danger": "red", "neutral": "gray"}
+
+
+def _esc(value: object) -> str:
+    return html.escape(str(value))
+
+
+def _status_tone(status: str) -> str:
+    if status in UI_STATUS_TONE:
+        return UI_STATUS_TONE[status]
+    return "warn" if STATUS_TONE.get(status, "review") == "review" else "ok"
+
+
+def _status_label(status: str) -> str:
+    return _t(f"status_{status}")
+
+
+def _pill_column(
+    label: str,
+    options: Iterable[str],
+    tone_of: Callable[[str], str],
+    format_func: Callable[[str], str],
+    help: Optional[str] = None,
+    width: int = 150,
+):
+    """Read-only coloured pill column; each cell holds a one-item list."""
+    options = list(options)
+    return st.column_config.MultiselectColumn(
+        label,
+        options=options,
+        color=[TONE_PILL_COLOR[tone_of(option)] for option in options],
+        format_func=format_func,
+        help=help,
+        width=width,
+    )
+
+
+def _status_column(help: Optional[str] = None):
+    statuses = dict.fromkeys([*STATUS_TONE, *UI_STATUS_TONE])
+    return _pill_column("Status", statuses, _status_tone, _status_label, help, width=160)
+
+
+def _status_cell(status: str) -> List[str]:
+    """Cell value for _status_column (tables cannot hold HTML, so pills do the colour)."""
+    return [status]
+
+
+def _status_badge(status: str) -> str:
+    return f"<span class='vl-badge tone-{_status_tone(status)}'>{_esc(_status_label(status))}</span>"
+
+
+def _pipeline_step_index(stage: str) -> int:
+    return next(
+        (index for index, stages in enumerate(PIPELINE_STEPS) if stage in stages),
+        0,
+    )
+
+
+def _render_page_intro(
+    kicker: str,
+    title: str,
+    body: str,
+    show_stages: bool = True,
+    step_note: str = "",
+    guide: Optional[Callable[[], None]] = None,
+):
+    """Page header; `guide` (ui.guide._open_guide) adds the (?) Guide button top right."""
+    with st.container(
+        horizontal=True, horizontal_alignment="distribute", vertical_alignment="top", gap="medium", key="vl_page_head"
+    ):
+        st.html(
+            "<header class='vl-header'>"
+            f"<div class='vl-kicker'>{_esc(kicker)}</div>"
+            f"<div class='vl-title'>{_esc(title)}</div>"
+            f"<div class='vl-sub'>{_esc(body)}</div>"
+            "</header>"
+        )
+        open_guide = guide is not None and st.button(
+            _t("guide"),
+            icon=":material/help:",
+            key="vl_guide",
+            help=_t("guide_help"),
+        )
     if show_stages:
-        active_index = next(
-            (
-                index
-                for index, (keys, _) in enumerate(stages)
-                if st.session_state.stage in keys
-            ),
-            0,
-        )
-        step_items = []
-        for index, (_, label) in enumerate(stages):
-            parts = label.split(" ", 1)
-            number = parts[0] if parts else str(index + 1)
-            name = parts[1] if len(parts) > 1 else label
-            state = (
-                "vl-step-active"
-                if index == active_index
-                else "vl-step-complete"
-                if index < active_index
-                else ""
+        active = _pipeline_step_index(st.session_state.stage)
+        parts = []
+        for index, key in enumerate(PIPELINE_STEP_KEYS):
+            state = "is-done" if index < active else "is-active" if index == active else ""
+            dot = "✓" if index < active else str(index + 1)
+            note = step_note if index == active and step_note else _t(f"{key}_note")
+            if index:
+                parts.append(f"<span class='vl-step-line {'is-done' if index <= active else ''}'></span>")
+            parts.append(
+                f"<div class='vl-step {state}'>"
+                f"<span class='vl-step-dot'>{_esc(dot)}</span>"
+                "<div class='vl-step-text'>"
+                f"<div class='vl-step-name'>{_esc(_t(key))}</div>"
+                f"<div class='vl-step-note'>{_esc(note)}</div>"
+                "</div></div>"
             )
-            # Compact, single-line HTML: no leading indentation and no blank
-            # lines. Streamlit renders st.markdown as CommonMark, which ends an
-            # HTML block at the first blank/whitespace-only line and then treats
-            # following 4+ space indented lines as a code block — which is why a
-            # pretty-printed <ol>/<li> showed up as raw text.
-            step_items.append(
-                (
-                    '<li class="vl-step {state}">'
-                    '<span class="vl-step-dot">{number}</span>'
-                    '<span class="vl-step-label">{name}</span>'
-                    '</li>'
-                ).format(
-                    state=state,
-                    number=html.escape(number),
-                    name=html.escape(name),
-                )
-            )
-        active_label = stages[active_index][1].split(" ", 1)[-1]
-        # Percentage position of the active dot's centre (dots are centred in
-        # equal columns), used by CSS to draw the filled progress line up to it.
-        progress_pct = round((active_index + 0.5) / len(stages) * 100, 2)
-        rail = (
-            '<div class="vl-stage-rail" aria-label="Pipeline progress">'
-            '<div class="vl-stage-meta">Step {step} of {total} · {label}</div>'
-            '<ol class="vl-stage-track" style="--vl-progress:{progress}%">{items}</ol>'
-            '</div>'
-        ).format(
-            step=active_index + 1,
-            total=len(stages),
-            label=html.escape(active_label),
-            progress=progress_pct,
-            items="".join(step_items),
-        )
-    st.markdown(
-        (
-            '<section class="vl-hero">'
-            f'<div class="vl-kicker">{html.escape(kicker)}</div>'
-            f'<h1>{html.escape(title)}</h1>'
-            f'<div class="vl-help">{html.escape(body)}</div>'
-            f'{rail}'
-            '</section>'
-        ),
-        unsafe_allow_html=True,
+        st.html(f"<nav class='vl-stepper' aria-label='Pipeline progress'>{''.join(parts)}</nav>")
+    if open_guide:
+        guide()
+
+
+def _card(name: str, **kwargs):
+    """Bordered container painted as a card; theme.py styles the st-key-vl_card_* class."""
+    return st.container(border=True, key=f"vl_card_{name}", **kwargs)
+
+
+def _render_section_title(title: str, caption: str = "", step: Optional[int] = None):
+    number = f"<span class='vl-section-num'>{step}</span>" if step is not None else ""
+    caption_html = f"<div class='vl-section-caption'>{_esc(caption)}</div>" if caption else ""
+    st.html(
+        f"<div class='vl-section'>{number}<div>"
+        f"<div class='vl-section-title'>{_esc(title)}</div>{caption_html}"
+        "</div></div>"
     )
 
 
 def _render_context_panel(items: List[Tuple[str, object]]):
     cells = "".join(
-        (
-            "<div class='vl-context'>"
-            "<div class='vl-context-label'>{label}</div>"
-            "<div class='vl-context-value'>{value}</div>"
-            "</div>"
-        ).format(
-            label=html.escape(str(label)),
-            value=html.escape(str(value)),
-        )
+        "<div class='vl-fact'>"
+        f"<div class='vl-fact-label'>{_esc(label)}</div>"
+        f"<div class='vl-fact-value'>{_esc(value)}</div>"
+        "</div>"
         for label, value in items
     )
-    st.markdown(f"<div class='vl-context-grid'>{cells}</div>", unsafe_allow_html=True)
+    st.html(f"<div class='vl-facts'>{cells}</div>")
 
 
-def _status_text(status: str) -> str:
-    tone = _t(f"tone_{STATUS_TONE.get(status, 'review')}")
-    return f"{tone} · {_t(f'status_{status}')}"
+def _render_stats(tiles: Sequence[Dict[str, object]]):
+    """Stat tiles: each dict has label, value, optional note and tone."""
+    cells = "".join(
+        f"<div class='vl-stat tone-{_esc(tile.get('tone', 'plain'))}'>"
+        f"<div class='vl-stat-label'>{_esc(tile['label'])}</div>"
+        f"<div class='vl-stat-value'>{_esc(tile['value'])}</div>"
+        + (f"<div class='vl-stat-note'>{_esc(tile['note'])}</div>" if tile.get("note") else "")
+        + "</div>"
+        for tile in tiles
+    )
+    st.html(f"<div class='vl-stats'>{cells}</div>")
 
 
-def _ordered_methods(methods: List[str]) -> List[str]:
-    priority = {"direct": 0, "tblastn": 1}
-    return sorted(
-        {method or "unknown" for method in methods},
-        key=lambda method: (priority.get(method, 99), method),
+def _render_status_bar(summary: Dict[str, int]):
+    counts = [(status, count) for status, count in summary.items() if count]
+    total = sum(count for _, count in counts)
+    if not total:
+        return
+    segments = "".join(
+        f"<span class='tone-{_status_tone(status)}' style='flex:{count}' "
+        f"title='{_esc(_status_label(status))}: {count}'></span>"
+        for status, count in counts
+    )
+    legend = "".join(
+        "<span class='vl-legend-item'>"
+        f"<span class='vl-swatch tone-{_status_tone(status)}'></span>"
+        f"{_esc(_status_label(status))} <b>{count}</b></span>"
+        for status, count in counts
+    )
+    st.html(
+        "<div class='vl-statusbar'>"
+        f"<div class='vl-bar' role='img' aria-label='Status distribution'>{segments}</div>"
+        f"<div class='vl-legend'>{legend}</div>"
+        "</div>"
     )
 
 
-def _method_section_label(method: str) -> str:
-    labels = {
-        "direct": "Direct extraction",
-        "tblastn": "tblastn lifting",
-    }
-    return labels.get(method or "unknown", method or "Unknown method")
-
-
-def _sidebar_item(label: str, value: object):
-    st.markdown(
-        """
-        <div class="vl-sidebar-card">
-            <div class="vl-sidebar-label">{label}</div>
-            <div class="vl-sidebar-value">{value}</div>
-        </div>
-        """.format(
-            label=html.escape(str(label)),
-            value=html.escape(str(value)),
-        ),
-        unsafe_allow_html=True,
+def _render_callout(body_html: str, tone: str = "info", icon: str = "i"):
+    """body_html must already be escaped by the caller."""
+    st.html(
+        f"<div class='vl-callout tone-{_esc(tone)}'>"
+        f"<span class='vl-callout-icon'>{_esc(icon)}</span><div>{body_html}</div>"
+        "</div>"
     )
+
+
+def _chips_html(values: Iterable[object], primary: bool = False) -> str:
+    cls = "vl-chip is-primary" if primary else "vl-chip"
+    return "<div class='vl-chips'>" + "".join(
+        f"<span class='{cls}'>{_esc(value)}</span>" for value in values
+    ) + "</div>"
+
+
+def _sequence_html(sequence: str, limit: int = 360) -> str:
+    shown = sequence[:limit]
+    letters = "".join(
+        f"<span class='{base.lower()}'>{base}</span>" if base.upper() in "ACGT" else _esc(base)
+        for base in shown
+    )
+    more = (
+        f"<span class='more'> … +{len(sequence) - limit:,} nt</span>"
+        if len(sequence) > limit else ""
+    )
+    return (
+        "<div class='vl-seq'>"
+        f"<div class='vl-seq-label'>Sequence · {len(sequence):,} nt</div>"
+        f"{letters}{more}</div>"
+    )
+
+
+def _kv_html(items: Sequence[Tuple[str, object]]) -> str:
+    return "<div class='vl-kv'>" + "".join(
+        f"<div><div class='vl-kv-label'>{_esc(label)}</div>"
+        f"<div class='vl-kv-value'>{_esc(value)}</div></div>"
+        for label, value in items
+    ) + "</div>"
+
+
+def _render_brand():
+    st.html(
+        "<div class='vl-brand'>"
+        "<div class='vl-brand-mark'>V</div>"
+        "<div><div class='vl-brand-name'>ViraLift</div>"
+        f"<div class='vl-brand-sub'>{_esc(_t('sidebar_subtitle'))}</div></div>"
+        "</div>"
+    )
+
+
+def _render_nav_label(label: str):
+    st.html(f"<div class='vl-nav-label'>{_esc(label)}</div>")
+
+
+def _render_sidebar_context(items: List[Tuple[str, object]]):
+    if not items:
+        return
+    rows = "".join(
+        "<div class='vl-ctx-row'>"
+        f"<span class='vl-ctx-label'>{_esc(label)}</span>"
+        f"<span class='vl-ctx-value'>{_esc(value)}</span>"
+        "</div>"
+        for label, value in items
+    )
+    st.html(f"<div class='vl-ctx'>{rows}</div>")
 
 
 def _format_percent(value: Optional[float], digits: int = 1) -> str:

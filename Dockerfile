@@ -18,6 +18,8 @@ RUN pip install --no-cache-dir -r ui/requirements.txt
 COPY app  /viralift/app
 COPY gbcrawler /viralift/gbcrawler
 COPY ui   /viralift/ui
+# Streamlit theme (light/dark palettes) and client settings
+COPY .streamlit /viralift/.streamlit
 
 # ── runtime ──────────────────────────────────────────────────────
 ENV PYTHONPATH=/viralift

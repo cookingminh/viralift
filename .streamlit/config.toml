@@ -1,2 +1,93 @@
 [client]
 toolbarMode = "auto"
+
+# ── Theme ─────────────────────────────────────────────────────────────────
+# "Iris" palette. Streamlit owns the light/dark switch (system preference by
+# default, changeable in ⋮ → Settings); ui/theme.py mirrors these exact values
+# as CSS tokens for ViraLift's own components. Keep the two in sync —
+# app/src/tests/test_ui_theme.py checks that they match.
+
+[theme]
+font = "Plus Jakarta Sans:https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap, sans-serif"
+headingFont = "Plus Jakarta Sans:https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap, sans-serif"
+codeFont = "JetBrains Mono:https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap, monospace"
+baseRadius = "0.6rem"
+buttonRadius = "0.6rem"
+showWidgetBorder = true
+linkUnderline = false
+
+[theme.light]
+primaryColor = "#5B5BD6"
+backgroundColor = "#F7F8FB"
+secondaryBackgroundColor = "#F1F2F7"
+textColor = "#1B1E2B"
+linkColor = "#4644B8"
+borderColor = "#E3E5ED"
+codeBackgroundColor = "#F1F2F7"
+codeTextColor = "#4644B8"
+dataframeBorderColor = "#E3E5ED"
+dataframeHeaderBackgroundColor = "#F4F5F9"
+greenColor = "#18794E"
+greenBackgroundColor = "#E8F5EE"
+greenTextColor = "#18794E"
+yellowColor = "#C98A00"
+yellowBackgroundColor = "#FFF5DC"
+yellowTextColor = "#8A5A00"
+orangeColor = "#D9730D"
+orangeBackgroundColor = "#FFF3DF"
+orangeTextColor = "#A35200"
+redColor = "#C9282E"
+redBackgroundColor = "#FDEBEC"
+redTextColor = "#B42228"
+blueColor = "#0B68C1"
+blueBackgroundColor = "#E7F2FD"
+blueTextColor = "#0B5FAE"
+violetColor = "#5B5BD6"
+violetBackgroundColor = "#EEEEFD"
+violetTextColor = "#4644B8"
+grayColor = "#8E92A3"
+grayBackgroundColor = "#F0F1F4"
+grayTextColor = "#5E6373"
+
+[theme.light.sidebar]
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F3F4F8"
+borderColor = "#E8EAF0"
+
+[theme.dark]
+primaryColor = "#6E6ADE"
+backgroundColor = "#111218"
+secondaryBackgroundColor = "#1E2130"
+textColor = "#ECEDF3"
+linkColor = "#B4AFFF"
+borderColor = "#2A2D3B"
+codeBackgroundColor = "#1A1C27"
+codeTextColor = "#B4AFFF"
+dataframeBorderColor = "#2A2D3B"
+dataframeHeaderBackgroundColor = "#1A1C27"
+greenColor = "#4CD69B"
+greenBackgroundColor = "#12291F"
+greenTextColor = "#6EE7B0"
+yellowColor = "#F5C04E"
+yellowBackgroundColor = "#33280F"
+yellowTextColor = "#F7C76B"
+orangeColor = "#F5A25A"
+orangeBackgroundColor = "#36220F"
+orangeTextColor = "#FFB066"
+redColor = "#FF8E8C"
+redBackgroundColor = "#3A1719"
+redTextColor = "#FF9E9B"
+blueColor = "#73B9FF"
+blueBackgroundColor = "#10253D"
+blueTextColor = "#8CC6FF"
+violetColor = "#8F8BF0"
+violetBackgroundColor = "#24234A"
+violetTextColor = "#B4AFFF"
+grayColor = "#737889"
+grayBackgroundColor = "#23252F"
+grayTextColor = "#A6AABB"
+
+[theme.dark.sidebar]
+backgroundColor = "#15161E"
+secondaryBackgroundColor = "#1E2130"
+borderColor = "#23263A"
