@@ -317,3 +317,26 @@ def test_review_uncertain_alias_suggestions_skips_when_disabled():
     assert diagnostics["status"] == "disabled"
     assert diagnostics["submitted_rows"] == 1
     assert reviewed[0]["llm_reviewed"] is False
+
+
+def test_unresolved_payload_carries_coordinate_verdict_and_existing_aliases():
+    # PX621376.1: a 2,208 bp "capsid protein" spanning VP4..VP1 (the P1 precursor).
+    payload = build_unresolved_name_review_payload(
+        virus_name="FMDV",
+        canonical_names=["VP4", "VP2", "VP3", "VP1"],
+        unknown_items={"capsid protein": {
+            "records": ["PX621376.1"],
+            "candidates": ["capsid protein", "P1"],
+            "position": {
+                "coordinate_verdict": "spans", "spans_reference_genes": ["VP4", "VP2", "VP3", "VP1"],
+                "records_checked": 3, "records_agreeing": 3, "feature_type": "CDS", "start": 1, "end": 2208,
+            },
+        }},
+        existing_aliases={"VP4": ["VP4", "1A"]},
+    )
+    row = payload["suggestions"][0]
+    assert row["coordinate_verdict"] == "spans"
+    assert row["spans_reference_genes"] == ["VP4", "VP2", "VP3", "VP1"]
+    assert (row["length_bp"], row["records_agreeing"]) == (2208, 3)
+    assert payload["existing_aliases"] == {"VP4": ["VP4", "1A"]}
+    assert "COORDINATE VERDICT" in payload["instructions"]

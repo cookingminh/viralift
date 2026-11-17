@@ -116,17 +116,24 @@ PAGE_GUIDES: Dict[str, Dict[str, object]] = {
                 "If listed, add them as canonical names so they are recognised next time. "
                 "Lifting works without this; they just keep their raw name."
             )),
+            ("Position check", (
+                "On opening, the reference genes are aligned to a few records carrying each name and "
+                "compared with where the name is annotated. **Matches VP4** pre-fills the row; "
+                "**spans VP4–VP1** means a precursor such as P1, never one gene."
+            )),
             ("Map each name", (
-                "Pick its canonical gene in the dropdown, or leave **exclude / keep raw name** "
-                "to keep the original name in the output."
+                "Each row is one exact set of names, so a decision never covers a different "
+                "annotation. Pick the canonical gene, or leave **exclude / keep raw name**."
             )),
             ("Choose what to save", (
-                "Selected chips under a name are written to the alias config for future runs. "
-                "Unselected ones apply to this run only."
+                "Selected chips are written to the alias config for future runs. A name that also "
+                "labels other genes in the file (such as `capsid protein`) is never pre-selected: "
+                "as an alias it would rename those too."
             )),
             ("Suggest with LLM (optional)", (
-                "Pre-fills the dropdowns. Only names, qualifier values, record IDs and canonical "
-                "names are sent. You still make the call."
+                "A second opinion that also sees the position check and the existing aliases; it "
+                "mainly judges whether a name is specific enough to save. Names, qualifier values, "
+                "record IDs and coordinates are sent, never sequences."
             )),
             ("Run annotation", "Saves the selected aliases and starts the run."),
         ],

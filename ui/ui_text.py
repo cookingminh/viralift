@@ -103,9 +103,27 @@ UI_TEXT = {
         "add_canonical_target": "Add canonical name",
         "add_canonical_caption": "Create a target like `ORF1ab` first if the right one is missing.",
         "llm_suggest": "Suggest with LLM",
-        "llm_caption": "Sends only names, qualifier values, record IDs and canonical names. Suggestions pre-fill the dropdowns; you still decide.",
+        "llm_caption": "Sends names, qualifier values, record IDs, coordinates and canonical names, never sequences. Suggestions pre-fill the dropdowns; you still decide.",
         "ignore_option": "-- exclude / keep raw name --",
         "keep_raw_note": "Kept as the raw name. Nothing is saved.",
+        "position_checking": "Checking where each name sits on the reference…",
+        "position_progress": "Checking positions · {done} of {total} records aligned",
+        "position_unavailable": "Position check unavailable (tblastn could not run). Decide from the names, or use the LLM.",
+        "position_summary": "Position check: {match} row(s) match one reference gene, {spans} span several genes, {other} undecided.",
+        "position_match": "Position: matches {gene} at {start}–{end} · IoU {iou} · {agree}/{checked} records",
+        "position_spans": "Position: spans {count} genes, {first}–{last}. A precursor, not one gene: keep it raw, or add a canonical for it.",
+        "position_inside": "Position: lies inside {gene}. A sub-part, not a gene of its own.",
+        "position_overlaps": "Position: only partly overlaps {gene} (IoU {iou}).",
+        "position_mixed": "Position: the checked records disagree ({agree} of {checked} alike).",
+        "position_none": "Position: no reference gene found on {checked} record(s).",
+        "position_unplaced": "Position: not checked; the names were not found on the sampled records.",
+        "llm_disagrees": "The coordinates say {gene}, so the mapping follows them.",
+        "shared_name_warning": "{names} also names other genes in this file. Saved as an alias it would rename them in every later run.",
+        "blocked_rows": (
+            "Kept raw this run: {rows}. Their only names also appear on genes meant to end up "
+            "differently, so mapping them would rename those too. Map them through a more "
+            "specific name, or add one in Alias manager."
+        ),
         "unknown_prefix": "Unknown",
         "appears_in": "Appears in",
         "map_to_canonical": "Map to canonical",

@@ -1,31 +1,125 @@
 # Step 2 · Review names — map unknown query names, optionally register ref names.
+#
+# Each row is one exact set of unresolved names (services._scan_unknown_names).
+# On entry the reference genes are lifted onto a few records per row and the
+# annotated spans compared with them (ui/name_review.py): a span that coincides
+# with one gene pre-fills the row, a span over several genes is flagged as a
+# precursor. The optional LLM gets that evidence and mainly judges whether names
+# are specific enough to save. Decisions are applied so that no other feature
+# changes name (plan_session_lookup).
 import html
 import streamlit as st
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional
+from app.src.alias.alias_manager import load_alias_config
 from app.src.alias.gene_alias import normalize_text
 from app.src.llm.alias_review import review_unresolved_names
-from app.src.io.run_logger import log_session_decisions
+from app.src.io.run_logger import log_error, log_session_decisions
+from app.src.lifting.tblastn_lifter import lift_all_tblastn
 from ui.components import _card, _chips_html, _render_callout, _render_page_intro, _render_section_title
 from ui.guide import _open_guide
 from ui.i18n import _t
+from ui.name_review import (
+    is_specific_name,
+    llm_position_context,
+    name_patterns,
+    names_shared_elsewhere,
+    plan_session_lookup,
+    position_evidence,
+)
 from ui.services import _add_new_canonicals_to_config, _load_excluded_names, _save_to_alias_config
 from ui.state import _reset
 
 
-def _llm_review_for_row(llm_reviews: Dict, rep: str, info: Dict) -> Dict:
-    """Find an LLM review even when the representative differs from candidates."""
+DECISIVE = "match"
+
+
+def _llm_review_for_row(llm_reviews: Dict, rep: str) -> Dict:
+    """The LLM review of this exact row. Rows that merely share a name with it
+    are different decisions, so candidates are deliberately not used as keys."""
     if not llm_reviews:
         return {}
-    lookup_values = [rep, normalize_text(rep)]
-    for candidate in info.get("candidates", []) or []:
-        text = str(candidate or "").strip()
-        if text:
-            lookup_values.extend([text, normalize_text(text)])
-    for value in lookup_values:
-        if value and value in llm_reviews:
-            return llm_reviews[value]
-    return {}
+    return llm_reviews.get(rep) or llm_reviews.get(normalize_text(rep)) or {}
+
+
+def _review_context(unknown: Dict[str, Dict]) -> Dict:
+    """Position evidence and name patterns for this review, computed once."""
+    cached = st.session_state.get("review_context")
+    if cached and cached["for"] is unknown:
+        return cached
+
+    config_path = st.session_state.alias_config_path
+    excluded = _load_excluded_names(Path(config_path)) if config_path else set()
+    lookup = st.session_state.alias_lookup or {}
+    records = {record.id: record for record in st.session_state.query_records or []}
+
+    def lift(record):
+        return lift_all_tblastn(
+            st.session_state.ref_features,
+            st.session_state.ref_record,
+            record,
+            min_coverage=st.session_state.min_coverage,
+            min_identity=st.session_state.min_identity,
+            evalue=st.session_state.evalue,
+            rescue_window=st.session_state.rescue_window,
+        )
+
+    bar = st.progress(0.0, text=_t("position_checking"))
+
+    def progress(done: int, total: int, record_id: str) -> None:
+        bar.progress(done / total if total else 1.0, text=_t("position_progress", done=done, total=total))
+
+    try:
+        evidence = position_evidence(unknown, records, lookup, excluded, lift, progress)
+        status = "ok"
+    except Exception as e:  # e.g. BLAST+ missing: the review still works without it
+        log_error("position check for review names", e)
+        evidence, status = {}, "error"
+    bar.empty()
+
+    context = {
+        "for": unknown,
+        "evidence": evidence,
+        "status": status,
+        "patterns": name_patterns(records.values(), lookup, excluded),
+    }
+    st.session_state.review_context = context
+    # Pre-fill each row once from a decisive position; the user's choice then stands.
+    for key, row_evidence in evidence.items():
+        if row_evidence.get("verdict") == DECISIVE and row_evidence.get("gene") in st.session_state.canonical_list:
+            st.session_state.setdefault(f"resolve_{key}", row_evidence["gene"])
+    return context
+
+
+def _position_note(evidence: Dict) -> Optional[str]:
+    verdict = evidence.get("verdict")
+    if not verdict:
+        return None
+    values = {
+        "gene": evidence.get("gene"),
+        "start": f"{evidence.get('start', 0):,}",
+        "end": f"{evidence.get('end', 0):,}",
+        "iou": evidence.get("iou"),
+        "agree": evidence.get("agree", 0),
+        "checked": evidence.get("checked", 0),
+    }
+    genes = evidence.get("genes") or []
+    if genes:
+        values.update(first=genes[0], last=genes[-1], count=len(genes))
+    return _t(f"position_{verdict}", **values)
+
+
+def _existing_aliases(config_path: Optional[str], limit: int = 12) -> Dict[str, List[str]]:
+    if not config_path:
+        return {}
+    try:
+        canonical_names = load_alias_config(Path(config_path)).get("canonical_names", {})
+    except (OSError, ValueError):
+        return {}
+    return {
+        canonical: [str(alias) for alias in (aliases if isinstance(aliases, list) else [])][:limit]
+        for canonical, aliases in canonical_names.items()
+    }
 
 
 def _short(value: str, limit: int = 42) -> str:
@@ -106,7 +200,13 @@ def _render_add_canonical_popover() -> None:
             st.rerun()
 
 
-def _run_llm_review(unknown_items: Dict, virus: str, canonicals: List[str]) -> None:
+def _run_llm_review(unknown_items: Dict, evidence: Dict, virus: str, canonicals: List[str]) -> None:
+    # Rows the coordinates could not settle go first: only VIRALIFT_LLM_MAX_ROWS are sent.
+    ordered = sorted(unknown_items, key=lambda key: evidence.get(key, {}).get("verdict") == DECISIVE)
+    items = {
+        key: {**unknown_items[key], "position": llm_position_context(evidence.get(key, {}))}
+        for key in ordered
+    }
     with st.spinner("Reviewing unresolved names with LLM..."):
         excluded = (
             _load_excluded_names(Path(st.session_state.alias_config_path))
@@ -114,20 +214,21 @@ def _run_llm_review(unknown_items: Dict, virus: str, canonicals: List[str]) -> N
             else set()
         )
         reviews, diagnostics = review_unresolved_names(
-            unknown_items=unknown_items,
+            unknown_items=items,
             ambiguous_items={},
             virus_name=virus,
             canonical_names=canonicals,
             excluded_names=excluded,
             cache=st.session_state.llm_alias_review_cache,
+            existing_aliases=_existing_aliases(st.session_state.alias_config_path),
         )
     st.session_state.resolve_llm_reviews = reviews
     st.session_state.resolve_llm_diagnostics = diagnostics
     ignore_option = _t("ignore_option")
-    for representative, info in unknown_items.items():
-        review = _llm_review_for_row(reviews, representative, info)
-        if not review:
-            continue
+    for representative in unknown_items:
+        review = _llm_review_for_row(reviews, representative)
+        if not review or evidence.get(representative, {}).get("verdict") == DECISIVE:
+            continue  # a decisive position sets the mapping; the LLM only advises on saving
         action = review.get("action")
         canonical = review.get("canonical_name")
         key = f"resolve_{representative}"
@@ -187,6 +288,8 @@ def stage_resolve():
     # ── Query-side resolver ──────────────────────────────────────────────
     unknown_items = dict(unknown)
     canonicals = st.session_state.canonical_list
+    context = _review_context(unknown) if unknown_items else {"evidence": {}, "patterns": [], "status": "ok"}
+    evidence = context["evidence"]
 
     if not unknown_items:
         _render_callout(html.escape(_t("all_known")), tone="ok", icon="✓")
@@ -204,11 +307,21 @@ def stage_resolve():
                     icon=":material/auto_awesome:",
                     key="resolve_run_llm_review",
                 ):
-                    _run_llm_review(unknown_items, virus, canonicals)
+                    _run_llm_review(unknown_items, evidence, virus, canonicals)
         st.caption(
             _t("unknown_query_intro", count=len(unknown_items), virus=virus)
             + " " + _t("llm_caption")
         )
+        if context["status"] == "error":
+            st.caption(_t("position_unavailable"))
+        elif evidence:
+            verdicts = [row.get("verdict") for row in evidence.values()]
+            st.caption(_t(
+                "position_summary",
+                match=verdicts.count("match"),
+                spans=verdicts.count("spans"),
+                other=len(verdicts) - verdicts.count("match") - verdicts.count("spans"),
+            ))
 
         notice = st.session_state.pop("resolve_canonical_notice", None)
         if notice:
@@ -223,13 +336,30 @@ def stage_resolve():
     decisions = {}
     save_candidates = {}
     options    = [_t("ignore_option")] + canonicals
+    base_lookup = st.session_state.alias_lookup or {}
 
-    def _default_save_candidate(candidate: str, representative: str) -> bool:
-        """Persist only the clean representative by default."""
-        text = str(candidate or "").strip()
-        if not text or ";" in text:
-            return False
-        return text == representative
+    def _current_choice(rep: str) -> Optional[str]:
+        choice = st.session_state.get(f"resolve_{rep}")
+        return None if not choice or choice.startswith("--") else choice
+
+    # Names a row shares with features meant to end up as something else are
+    # never pre-selected for saving: as an alias they would rename those too.
+    shared_names = names_shared_elsewhere(
+        unknown_items,
+        {rep: _current_choice(rep) for rep in unknown_items},
+        context["patterns"],
+        base_lookup,
+    )
+
+    def _default_save_candidate(candidate: str, rep: str, info: Dict, review: Dict) -> bool:
+        """Pre-select only the row's first name, and only when it is specific,
+        not shared with other outcomes, and not judged too broad by the LLM."""
+        return (
+            candidate == info["candidates"][0]
+            and is_specific_name(candidate)
+            and candidate not in shared_names.get(rep, set())
+            and review.get("action") != "ignore"
+        )
 
     def _render_resolver_row(index: int, rep: str, info: Dict) -> None:
         record_ids = info["records"]
@@ -258,14 +388,25 @@ def stage_resolve():
             mapped = None if choice.startswith("--") else choice
             decisions[rep] = mapped
 
-            review = _llm_review_for_row(llm_reviews, rep, info)
+            row_evidence = evidence.get(rep, {})
+            note = _position_note(row_evidence)
+            if note:
+                col_action.caption(f":material/my_location: {note}")
+
+            review = _llm_review_for_row(llm_reviews, rep)
             if review:
                 action = review.get("action")
                 canonical = review.get("canonical_name") or "none"
                 confidence = review.get("confidence") or "unknown"
                 reason = review.get("reason") or "No reason returned."
+                disagree = (
+                    row_evidence.get("verdict") == DECISIVE
+                    and action == "save_alias"
+                    and canonical != row_evidence.get("gene")
+                )
                 col_action.caption(
                     f":material/auto_awesome: LLM: `{action}` → `{canonical}` ({confidence}). {reason}"
+                    + (" " + _t("llm_disagrees", gene=row_evidence.get("gene")) if disagree else "")
                 )
 
             if mapped:
@@ -274,12 +415,17 @@ def stage_resolve():
                     _t("save_aliases"),
                     pill_options,
                     selection_mode="multi",
-                    default=[c for c in pill_options if _default_save_candidate(c, rep)],
+                    default=[c for c in pill_options if _default_save_candidate(c, rep, info, review)],
                     format_func=_short,
                     key=f"save_{rep}",
                     help=_t("save_candidate_help"),
                 )
                 save_candidates[rep] = list(selected or [])
+                risky = sorted(set(save_candidates[rep]) & shared_names.get(rep, set()))
+                if risky:
+                    col_save.caption(
+                        f":material/warning: {_t('shared_name_warning', names=', '.join(risky))}"
+                    )
             else:
                 col_save.caption(_t("keep_raw_note"))
 
@@ -288,6 +434,13 @@ def stage_resolve():
         _render_resolver_row(index, rep, info)
 
     mapped_count = sum(1 for canonical in decisions.values() if canonical)
+    session_lookup, blocked = plan_session_lookup(unknown_items, decisions, context["patterns"], base_lookup)
+    if blocked:
+        _render_callout(
+            html.escape(_t("blocked_rows", rows=", ".join(blocked))),
+            tone="warn",
+            icon="!",
+        )
     with st.container(horizontal=True, horizontal_alignment="distribute", vertical_alignment="center"):
         back_clicked = st.button(_t("back"), icon=":material/arrow_back:")
         with st.container(horizontal=True, horizontal_alignment="right", vertical_alignment="center", width="content"):
@@ -300,16 +453,9 @@ def stage_resolve():
         st.rerun()
 
     if run_clicked:
-        # Expand all candidates for each group into flat {candidate: canonical} dicts.
-        # This ensures every variant name (product, note, etc.) is covered, both
-        # for the session-only effective lookup and for permanent alias config saves.
-
-        # Session resolver: all candidates of every decided group
-        resolver_expanded: Dict[str, str] = {}
-        for rep, canonical in decisions.items():
-            if canonical:
-                for candidate in unknown[rep]["candidates"]:
-                    resolver_expanded[candidate] = canonical
+        # Session resolver: the names of every decided row, minus any name whose
+        # mapping would also rename features outside that row (plan_session_lookup).
+        resolver_expanded: Dict[str, str] = dict(session_lookup)
 
         # Persist to alias config: only candidate aliases explicitly selected
         # by the user. Session resolution remains broader than permanent saves.
