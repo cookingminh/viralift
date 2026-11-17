@@ -13,8 +13,11 @@ from ui.reference_library import (
     list_references,
     mark_used,
     reference_file,
+    references_for,
     remove_reference,
+    rename_virus,
     save_reference,
+    set_default,
     suggest_reference,
 )
 from ui.state import REGISTRY_PATH
@@ -72,8 +75,24 @@ def test_suggests_the_most_recently_used_reference_for_the_virus(tmp_path):
     assert suggest_reference("Unknown virus", entries) is None
     assert suggest_reference(None, entries) is None
 
-    mark_used("FJ175661.1", library)
+    # The first reference saved for a virus is its default and wins over a
+    # more recently used one, so a lab keeps running on the same reference.
+    assert [e["id"] for e in references_for("FMDV", entries) if e.get("default")] == ["FJ175661.1"]
+    mark_used("AY593829.1", library)
     assert suggest_reference("FMDV", list_references(library))["id"] == "FJ175661.1"
+
+    set_default("AY593829.1", library)
+    fmdv = references_for("FMDV", list_references(library))
+    assert {e["id"]: e["default"] for e in fmdv} == {"FJ175661.1": False, "AY593829.1": True}
+    assert suggest_reference("FMDV", fmdv)["id"] == "AY593829.1"
+
+
+def test_rename_follows_the_virus(tmp_path):
+    library = tmp_path / "references"
+    record = _record("FJ175661.1", "Foot-and-mouth disease virus O")
+    save_reference(_source(tmp_path, record), record, "FMDV", "mat_peptide", 12, library)
+    rename_virus("FMDV", "Foot-and-mouth disease virus", library)
+    assert references_for("Foot-and-mouth disease virus", list_references(library))[0]["id"] == "FJ175661.1"
 
 
 def test_detects_the_query_virus_from_its_first_records():

@@ -93,11 +93,15 @@ html[data-vl-theme="dark"] { __DARK_TOKENS__ }
 }
 
 /* ── page frame ─────────────────────────────────────────────────── */
-/* top padding clears Streamlit's 3.75rem toolbar so the header's Guide button is never under it */
+/* top padding clears the top bar (Streamlit's 3.75rem header band) */
 .stMainBlockContainer, .main .block-container {
-    max-width: 1240px;
+    max-width: 1360px;
     padding-top: 4.5rem;
     padding-bottom: 4rem;
+}
+@media (min-width: 761px) {
+    /* no sidebar any more: give the page the width, keep a modest gutter */
+    .stMainBlockContainer, .main .block-container { padding-left: 2.5rem; padding-right: 2.5rem; }
 }
 h1, h2, h3, h4 { letter-spacing: -0.015em; text-wrap: balance; }
 [data-testid="stElementContainer"]:has(.vl-boot) { display: none; }
@@ -108,20 +112,70 @@ h1, h2, h3, h4 { letter-spacing: -0.015em; text-wrap: balance; }
     box-shadow: var(--vl-shadow);
 }
 
-/* ── sidebar ────────────────────────────────────────────────────── */
-[data-testid="stSidebarUserContent"] { padding-top: 0.6rem; }
-[data-testid="stSidebar"] .stButton button {
-    justify-content: flex-start;
-    padding: 0.55rem 0.75rem;
+/* ── top bar (streamlit_app.py) ─────────────────────────────────── */
+/* The bar is pinned into Streamlit's header band. The header itself turns
+   transparent and lets clicks through, except on its ⋮ menu (Settings holds the
+   light/dark switch), which stays on top at the right end of the bar. */
+[data-testid="stHeader"] { background: transparent; }
+/* Deploy (to Streamlit Cloud) means nothing for a self-hosted lab tool; the ⋮
+   menu stays, since its Settings holds the light/dark switch. */
+[data-testid="stAppDeployButton"] { display: none; }
+[data-testid="stHeader"], [data-testid="stHeader"] * { pointer-events: none; }
+[data-testid="stHeader"] :is([data-testid="stMainMenu"], [data-testid="stToolbarActions"], [data-testid="stStatusWidget"]),
+[data-testid="stHeader"] :is([data-testid="stMainMenu"], [data-testid="stToolbarActions"], [data-testid="stStatusWidget"]) *,
+[data-testid="stHeader"] button { pointer-events: auto; }
+[data-testid="stElementContainer"]:has(> .st-key-vl_topbar),
+.stElementContainer:has(> .st-key-vl_topbar) { height: 0; }
+.st-key-vl_topbar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 999989;
+    height: 3.75rem;
+    padding: 0 4.25rem 0 max(1.25rem, env(safe-area-inset-left, 0px));
+    flex-wrap: nowrap !important;
+    background: var(--vl-surface);
+    border-bottom: 1px solid var(--vl-border);
+    box-shadow: 0 1px 2px rgba(27, 30, 43, 0.04);
+}
+.st-key-vl_topbar .vl-brand { padding: 0; margin-right: 1.25rem; }
+.st-key-vl_topbar .vl-brand-mark { width: 2rem; height: 2rem; font-size: 0.95rem; }
+.st-key-vl_topbar .vl-brand-name { font-size: 1.05rem; }
+.st-key-vl_topbar .vl-brand-sub { display: none; }
+.st-key-vl_topbar .stButton button {
+    padding: 0.4rem 0.8rem;
+    min-height: 2.2rem;
     font-weight: 600;
     color: var(--vl-muted);
     border-radius: var(--vl-radius-sm);
 }
-[data-testid="stSidebar"] .stButton button:hover {
-    color: var(--vl-text);
-    background: var(--vl-surface-2);
+.st-key-vl_topbar .stButton button:hover { color: var(--vl-text); background: var(--vl-surface-2); }
+.vl-topbar-context {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.45rem;
+    min-width: 0;
+    font-family: var(--vl-mono);
+    font-size: 0.78rem;
+    color: var(--vl-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
-[data-testid="stSidebar"] .stButton button > div { justify-content: flex-start; }
+.vl-topbar-sep { color: var(--vl-faint); }
+.vl-footer {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 0.5rem 1.5rem;
+    margin-top: 2.5rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--vl-border);
+    font-size: 0.74rem;
+    color: var(--vl-faint);
+}
+.vl-footer-build { font-family: var(--vl-mono); }
 
 /* ── native widget polish (colours come from config.toml) ───────── */
 [data-testid="stFileUploaderDropzone"] {
@@ -460,8 +514,8 @@ h1, h2, h3, h4 { letter-spacing: -0.015em; text-wrap: balance; }
 .vl-guide-compact .vl-guide-subtitle { margin: 0.9rem 0 0.4rem; }
 .vl-guide-compact .vl-guide-subtitle:first-child { margin-top: 0; }
 
-/* ── sidebar components ─────────────────────────────────────────── */
-.vl-brand { display: flex; align-items: center; gap: 0.7rem; padding: 0.2rem 0 0.4rem; }
+/* ── brand + section labels ─────────────────────────────────────── */
+.vl-brand { display: flex; align-items: center; gap: 0.6rem; padding: 0.2rem 0 0.4rem; white-space: nowrap; }
 .vl-brand-mark {
     position: relative;
     flex: none;
@@ -496,15 +550,11 @@ h1, h2, h3, h4 { letter-spacing: -0.015em; text-wrap: balance; }
     color: var(--vl-faint);
     margin: 0.4rem 0 -0.3rem 0.1rem;
 }
-.vl-ctx { border: 1px solid var(--vl-border); border-radius: var(--vl-radius); background: var(--vl-surface-2); padding: 0.35rem 0.85rem; }
-.vl-ctx-row { display: flex; justify-content: space-between; gap: 0.75rem; padding: 0.45rem 0; border-bottom: 1px solid var(--vl-border); font-size: 0.8rem; }
-.vl-ctx-row:last-child { border-bottom: 0; }
-.vl-ctx-label { color: var(--vl-muted); white-space: nowrap; }
-.vl-ctx-value { font-family: var(--vl-mono); font-weight: 600; color: var(--vl-text); text-align: right; overflow-wrap: anywhere; min-width: 0; }
-.vl-sidebar-foot { font-size: 0.72rem; color: var(--vl-faint); line-height: 1.5; }
-.vl-sidebar-build { font-family: var(--vl-mono); margin-top: 0.45rem; }
 
 /* ── alias manager: virus list + danger button ──────────────────── */
+.vl-ref-row { min-width: 0; }
+.vl-ref-id { display: flex; align-items: center; gap: 0.5rem; font-family: var(--vl-mono); font-weight: 700; color: var(--vl-text); }
+.vl-ref-desc { font-size: 0.86rem; color: var(--vl-muted); margin-top: 0.15rem; overflow-wrap: anywhere; }
 .st-key-alias_manager_virus [role="radiogroup"] { gap: 0.25rem; width: 100%; }
 .st-key-alias_manager_virus [role="radiogroup"] > label {
     width: 100%;
@@ -532,6 +582,11 @@ h1, h2, h3, h4 { letter-spacing: -0.015em; text-wrap: balance; }
     .vl-stepper { flex-wrap: wrap; }
     .vl-step-line { display: none; }
     .vl-step-note { display: none; }
+    /* top bar on a phone: icons only, no run context */
+    .st-key-vl_topbar { padding-left: 0.75rem; gap: 0.25rem; }
+    .st-key-vl_topbar .vl-brand { margin-right: 0.25rem; }
+    .st-key-vl_topbar .vl-brand-name, .vl-topbar-context { display: none; }
+    .st-key-vl_topbar .stButton button [data-testid="stMarkdownContainer"] { display: none; }
     .vl-term, .vl-guide-compact .vl-term, .vl-guide-legend-row { grid-template-columns: 1fr; gap: 0.2rem; }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -588,7 +643,7 @@ def _inject_css():
 
 
 def _nav_active_css(active_key: str) -> None:
-    """Highlight the active sidebar workspace button (keyed by its widget key)."""
+    """Highlight the active top-bar workspace button (keyed by its widget key)."""
     st.html(
         "<style>"
         f".st-key-{active_key} button {{"

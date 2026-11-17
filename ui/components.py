@@ -246,8 +246,9 @@ def _render_brand():
         "<div class='vl-brand'>"
         "<div class='vl-brand-mark'>V</div>"
         "<div><div class='vl-brand-name'>ViraLift</div>"
-        f"<div class='vl-brand-sub'>{_esc(_t('sidebar_subtitle'))}</div></div>"
-        "</div>"
+        f"<div class='vl-brand-sub'>{_esc(_t('brand_subtitle'))}</div></div>"
+        "</div>",
+        width="content",
     )
 
 
@@ -255,23 +256,19 @@ def _render_nav_label(label: str):
     st.html(f"<div class='vl-nav-label'>{_esc(label)}</div>")
 
 
-def _render_sidebar_context(items: List[Tuple[str, object]]):
-    if not items:
-        return
-    rows = "".join(
-        "<div class='vl-ctx-row'>"
-        f"<span class='vl-ctx-label'>{_esc(label)}</span>"
-        f"<span class='vl-ctx-value'>{_esc(value)}</span>"
-        "</div>"
-        for label, value in items
-    )
-    st.html(f"<div class='vl-ctx'>{rows}</div>")
+def _render_topbar_context(items: List[str]):
+    if items:
+        st.html(
+            "<div class='vl-topbar-context'>"
+            + "<span class='vl-topbar-sep'>·</span>".join(f"<span>{_esc(item)}</span>" for item in items)
+            + "</div>"
+        )
 
 
-def _render_sidebar_foot(hint: str, build: str):
+def _render_footer(hint: str, build: str):
     st.html(
-        f"<div class='vl-sidebar-foot'>{_esc(hint)}"
-        f"<div class='vl-sidebar-build'>{_esc(build)}</div></div>"
+        f"<footer class='vl-footer'><span>{_esc(hint)}</span>"
+        f"<span class='vl-footer-build'>{_esc(build)}</span></footer>"
     )
 
 

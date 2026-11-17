@@ -1,8 +1,10 @@
-# Saved references: the reference of every run is kept so that next time the
-# user only adds the query file. When the query's virus is recognised (the same
-# registry keywords that pick the alias config), its saved reference is
-# suggested. Files live in app/config/references/ (bind-mounted in Docker and
-# git-ignored, like the rest of the runtime state) next to an index.json.
+# Reference library: reference genomes kept per virus, managed in Alias manager
+# and offered in Run pipeline. The reference of every run is added too, so next
+# time the user only adds the query file. When the query's virus is recognised
+# (the same registry keywords that pick the alias config), that virus's default
+# reference is suggested, or its most recently used one when none is default.
+# Files live in app/config/references/ (bind-mounted in Docker and git-ignored,
+# like the rest of the runtime state) next to an index.json.
 import io
 import json
 import re
@@ -80,7 +82,9 @@ def save_reference(
     entries = _read_index(root)
     entry = next((e for e in entries if e.get("id") == record.id), None)
     if entry is None:
-        entry = {"id": record.id, "added": _now()}
+        # The first reference of a virus becomes its default until changed.
+        has_default = any(e.get("default") and e.get("virus_name") == (virus_name or "") for e in entries)
+        entry = {"id": record.id, "added": _now(), "default": not has_default and bool(virus_name)}
         entries.append(entry)
     entry.update(
         file=file_name,
@@ -104,6 +108,34 @@ def mark_used(ref_id: str, directory: Optional[Path] = None) -> None:
     _write_index(root, entries)
 
 
+def set_default(ref_id: str, directory: Optional[Path] = None) -> None:
+    """Make this reference the one suggested for its virus."""
+    root = _directory(directory)
+    entries = _read_index(root)
+    target = next((e for e in entries if e.get("id") == ref_id), None)
+    if target is None:
+        return
+    for entry in entries:
+        if entry.get("virus_name") == target.get("virus_name"):
+            entry["default"] = entry is target
+    _write_index(root, entries)
+
+
+def rename_virus(old_name: str, new_name: str, directory: Optional[Path] = None) -> None:
+    """Follow a virus rename in Alias manager."""
+    root = _directory(directory)
+    entries = _read_index(root)
+    if old_name and new_name and any(e.get("virus_name") == old_name for e in entries):
+        for entry in entries:
+            if entry.get("virus_name") == old_name:
+                entry["virus_name"] = new_name
+        _write_index(root, entries)
+
+
+def references_for(virus_name: Optional[str], entries: List[Dict]) -> List[Dict]:
+    return [entry for entry in entries if virus_name and entry.get("virus_name") == virus_name]
+
+
 def remove_reference(ref_id: str, directory: Optional[Path] = None) -> None:
     root = _directory(directory)
     entries = _read_index(root)
@@ -114,8 +146,11 @@ def remove_reference(ref_id: str, directory: Optional[Path] = None) -> None:
 
 
 def suggest_reference(virus_name: Optional[str], entries: List[Dict]) -> Optional[Dict]:
-    """The most recently used saved reference for this virus, if any."""
-    matches = [entry for entry in entries if virus_name and entry.get("virus_name") == virus_name]
+    """The virus's default reference, else its most recently used one."""
+    matches = references_for(virus_name, entries)
+    defaults = [entry for entry in matches if entry.get("default")]
+    if defaults:
+        return defaults[0]
     return max(matches, key=lambda entry: entry.get("last_used", "")) if matches else None
 
 

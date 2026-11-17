@@ -64,13 +64,14 @@ def _query_virus(query_file, crawled_query_path: Optional[str]) -> Tuple[Optiona
 
 
 def _reference_label(entry: Dict) -> str:
-    return _t(
+    label = _t(
         "ref_option",
         virus=entry.get("virus_name") or _t("unknown_virus"),
         id=entry["id"],
         length=f"{entry.get('length', 0):,}",
         genes=entry.get("genes", 0),
     )
+    return f"{label} · {_t('ref_default')}" if entry.get("default") else label
 
 
 def _render_reference_picker(query_key: Optional[str], query_virus: Optional[VirusMatch]):
@@ -121,7 +122,11 @@ def _render_reference_picker(query_key: Optional[str], query_virus: Optional[Vir
         )
     elif suggestion and entry["id"] == suggestion["id"]:
         _render_callout(
-            html.escape(_t("ref_suggested", virus=query_virus[0])),
+            html.escape(_t(
+                "ref_suggested",
+                virus=query_virus[0],
+                kind=_t("ref_default") if entry.get("default") else _t("ref_most_recent"),
+            )),
             tone="ok",
             icon="✓",
         )

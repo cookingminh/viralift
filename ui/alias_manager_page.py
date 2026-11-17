@@ -2,14 +2,18 @@
 #
 # Layout: registered viruses on the left, the selected virus's editor on the
 # right. Lists (aliases, keywords, excluded names) are selectable pills — click
-# to select, then remove — and additions go through small forms.
+# to select, then remove — and additions go through small forms. The Reference
+# genomes tab manages the virus's saved references (ui/reference_library.py),
+# which Run pipeline offers and suggests.
 #
 # Save model (single, predictable rule): every edit persists immediately and writes
 # a timestamped backup. Destructive actions (delete canonical / delete virus) ask
 # for confirmation first. Success is surfaced through a flash toast that survives the
 # rerun, so an action never looks like "nothing happened".
 
+import html
 import json
+import tempfile
 from pathlib import Path
 from typing import Dict, Iterable, List
 
@@ -27,9 +31,21 @@ from app.src.alias.alias_manager import (
     update_registry_entry,
     validate_alias_config,
 )
+from app.src.alias.alias_registry import get_detected_virus_name
 from app.src.alias.gene_alias import get_excluded_names, normalize_text
-from ui.components import _render_nav_label, _render_page_intro, _render_section_title, _render_stats
+from app.src.features.ref_loader import prepare_reference_features
+from app.src.io.genbank_parser import load_single_genbank
+from ui.components import _card, _render_nav_label, _render_page_intro, _render_section_title, _render_stats
 from ui.guide import _open_guide
+from ui.reference_library import (
+    list_references,
+    reference_file,
+    references_for,
+    remove_reference,
+    rename_virus,
+    save_reference,
+    set_default,
+)
 from ui.state import REGISTRY_PATH, ROOT
 
 
@@ -380,6 +396,7 @@ def _render_registry_tab(entry: Dict, config: Dict, config_path: Path) -> None:
             key=f"registry_virus_name_{config_path}",
         )
         if st.button("Save", key=f"save_virus_name_{config_path}"):
+            rename_virus(entry.get("virus_name", ""), registry_virus_name.strip())
             _save_registry_entry(
                 alias_config=entry.get("alias_config", ""),
                 virus_name=registry_virus_name,
@@ -619,6 +636,114 @@ def _render_excluded_tab(config: Dict, config_path: Path, excluded_existing: Lis
             st.rerun()
 
 
+# ── Reference genomes ───────────────────────────────────────────────────
+
+def _make_default_reference(ref_id: str) -> None:
+    set_default(ref_id)
+    _flash(f"{ref_id} is now the default reference.")
+
+
+def _remove_reference(ref_id: str) -> None:
+    remove_reference(ref_id)
+    _flash(f"Removed {ref_id} from the reference library.", icon="🗑️")
+
+
+def _add_reference(uploaded, virus_name: str, config_path: Path) -> None:
+    """Validate an uploaded GenBank reference the way a run would, then save it."""
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "reference.gb"
+        path.write_bytes(uploaded.getvalue())
+        try:
+            record = load_single_genbank(path)
+            features, feature_type, *_ = prepare_reference_features(
+                record, alias_config_arg=str(config_path), alias_registry_arg=str(REGISTRY_PATH)
+            )
+        except Exception as e:
+            st.error(f"Could not add `{uploaded.name}`: {e}")
+            return
+        save_reference(path, record, virus_name, feature_type, len(features))
+    message = f"Added {record.id} to {virus_name}."
+    detected = get_detected_virus_name(record, REGISTRY_PATH)
+    if detected and detected != virus_name:
+        message += f" Its metadata looks like {detected}."
+    _flash(message)
+    st.session_state.reference_upload_nonce = st.session_state.get("reference_upload_nonce", 0) + 1
+    st.rerun()
+
+
+def _render_references_tab(virus_name: str, config_path: Path) -> None:
+    st.caption(
+        "Reference genomes for this virus. Run pipeline suggests the default one when a query "
+        "is detected as this virus, and every reference used in a run is added here."
+    )
+    saved = references_for(virus_name, list_references())
+    if not saved:
+        st.info("No reference saved for this virus yet. Add one below, or run the pipeline with one.")
+
+    for index, ref in enumerate(saved):
+        with _card(f"reference_{index}"):
+            with st.container(horizontal=True, horizontal_alignment="distribute", vertical_alignment="center"):
+                facts = " · ".join(filter(None, [
+                    f"{ref.get('length', 0):,} bp",
+                    f"{ref.get('genes', 0)} genes",
+                    ref.get("feature_type") or "",
+                    f"added {ref.get('added', '')[:10]}",
+                    f"last used {ref.get('last_used', '')[:10]}" if ref.get("last_used") else "",
+                ]))
+                st.html(
+                    "<div class='vl-ref-row'>"
+                    f"<div class='vl-ref-id'>{html.escape(ref['id'])}"
+                    + ("<span class='vl-badge tone-ok'>Default</span>" if ref.get("default") else "")
+                    + "</div>"
+                    f"<div class='vl-ref-desc'>{html.escape(ref.get('description', ''))}</div>"
+                    f"<div class='vl-meta'>{html.escape(facts)}</div>"
+                    "</div>"
+                )
+                with st.container(horizontal=True, width="content", vertical_alignment="center"):
+                    path = reference_file(ref)
+                    st.download_button(
+                        ".gb",
+                        data=path.read_bytes(),
+                        file_name=path.name,
+                        icon=":material/download:",
+                        key=f"reference_download_{ref['id']}",
+                        help="Download this GenBank file",
+                        on_click="ignore",
+                    )
+                    if not ref.get("default"):
+                        st.button(
+                            "Make default",
+                            icon=":material/star:",
+                            key=f"reference_default_{ref['id']}",
+                            on_click=_make_default_reference,
+                            args=(ref["id"],),
+                        )
+                    with st.popover("Remove", icon=":material/delete:", key=f"reference_remove_{ref['id']}"):
+                        st.caption(f"Remove {ref['id']} from the library? Results you already have are not affected.")
+                        st.button(
+                            "Remove reference",
+                            type="primary",
+                            key=f"reference_remove_confirm_{ref['id']}",
+                            on_click=_remove_reference,
+                            args=(ref["id"],),
+                        )
+
+    st.markdown("**Add a reference**")
+    uploaded = st.file_uploader(
+        "One well-annotated GenBank record (.gb, .gbk)",
+        type=["gb", "gbk"],
+        key=f"reference_upload_{config_path}_{st.session_state.get('reference_upload_nonce', 0)}",
+    )
+    if st.button(
+        f"Add to {virus_name}",
+        icon=":material/add:",
+        type="primary",
+        disabled=uploaded is None,
+        key=f"reference_add_{config_path}",
+    ):
+        _add_reference(uploaded, virus_name, config_path)
+
+
 def _render_virus_editor(entry: Dict) -> None:
     config_path = resolve_config_path(Path(entry.get("alias_config", "")), ROOT)
     st.session_state.alias_manager_config_path = config_path
@@ -639,6 +764,7 @@ def _render_virus_editor(entry: Dict) -> None:
     _render_stats([
         {"label": "Canonical", "value": len(canonical_names_map), "tone": "primary"},
         {"label": "Aliases", "value": total_aliases},
+        {"label": "References", "value": len(references_for(virus_label, list_references()))},
         {"label": "Excluded", "value": len(excluded_existing)},
         {"label": "Keywords", "value": len(entry.get("keywords", []) or [])},
     ])
@@ -650,13 +776,16 @@ def _render_virus_editor(entry: Dict) -> None:
             for warning in config_warnings:
                 st.markdown(f"- {warning}")
 
-    tab_alias, tab_registry, tab_excluded = st.tabs([
+    tab_alias, tab_refs, tab_registry, tab_excluded = st.tabs([
         "Canonical aliases",
+        "Reference genomes",
         "Detection keywords",
         "Excluded names",
     ])
     with tab_alias:
         _render_aliases_tab(config, config_path)
+    with tab_refs:
+        _render_references_tab(virus_label, config_path)
     with tab_registry:
         _render_registry_tab(entry, config, config_path)
     with tab_excluded:

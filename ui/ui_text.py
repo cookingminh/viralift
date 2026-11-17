@@ -3,10 +3,9 @@
 UI_TEXT = {
     "en": {
         # ── shell ─────────────────────────────────────────────────────
-        "sidebar_subtitle": "Viral gene name standardisation",
-        "nav_workspace": "Workspace",
-        "nav_this_run": "This run",
-        "sidebar_theme_hint": "Light / dark follows your system. Change it in ⋮ → Settings.",
+        "brand_subtitle": "Viral gene name standardisation",
+        "records_loaded": "{count} records",
+        "theme_hint": "Light / dark follows your system; switch it from the ⋮ menu at the top right.",
         "step": "Step",
         "step_of": "{index} of 3 · {name}",
         "step_setup": "Setup",
@@ -38,8 +37,10 @@ UI_TEXT = {
         "ref_upload_new": "Upload a new reference…",
         "ref_option": "{virus} · {id} · {length} bp · {genes} genes",
         "unknown_virus": "Unknown virus",
-        "ref_saved_hint": "The reference is remembered after the run, so next time you only add the query.",
-        "ref_suggested": "Suggested: the query looks like {virus}, and this is its most recently used reference.",
+        "ref_saved_hint": "The reference is remembered after the run, so next time you only add the query. Manage saved references in Alias manager.",
+        "ref_suggested": "Suggested: the query looks like {virus}, and this is its {kind} reference.",
+        "ref_default": "default",
+        "ref_most_recent": "most recently used",
         "ref_virus_mismatch": "This reference is {ref_virus}, but the query looks like {query_virus}.",
         "ref_none_for_virus": "The query looks like {virus}. No saved reference for it yet: upload one and it is remembered for next time.",
         "forget_reference": "Forget",
