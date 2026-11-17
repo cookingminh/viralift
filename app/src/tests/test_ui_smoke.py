@@ -217,3 +217,14 @@ def test_query_only_run_uses_the_saved_reference_for_its_virus(prrs_run):
     _assert_clean(at)
     assert at.session_state.stage != "upload"
     assert at.session_state.ref_saved_id == ref_record.id
+
+
+@requires_sample_data
+def test_alias_manager_lists_the_virus_references(prrs_run):
+    ref_record = prrs_run["ref_record"]
+    ui.reference_library.save_reference(REF_FILE, ref_record, "PRRSV", "CDS", len(prrs_run["ref_features"]))
+    at = _app(app_mode="Alias manager")
+    at.run()
+    _assert_clean(at)
+    page_html = " ".join(element.proto.body for element in at.get("html"))
+    assert ref_record.id in page_html and "Default" in page_html

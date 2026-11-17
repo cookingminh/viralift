@@ -505,6 +505,9 @@ h1, h2, h3, h4 { letter-spacing: -0.015em; text-wrap: balance; }
 .vl-sidebar-build { font-family: var(--vl-mono); margin-top: 0.45rem; }
 
 /* ── alias manager: virus list + danger button ──────────────────── */
+.vl-ref-row { min-width: 0; }
+.vl-ref-id { display: flex; align-items: center; gap: 0.5rem; font-family: var(--vl-mono); font-weight: 700; color: var(--vl-text); }
+.vl-ref-desc { font-size: 0.86rem; color: var(--vl-muted); margin-top: 0.15rem; overflow-wrap: anywhere; }
 .st-key-alias_manager_virus [role="radiogroup"] { gap: 0.25rem; width: 100%; }
 .st-key-alias_manager_virus [role="radiogroup"] > label {
     width: 100%;

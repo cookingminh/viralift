@@ -198,6 +198,11 @@ PAGE_GUIDES: Dict[str, Dict[str, object]] = {
         ),
         "steps": [
             ("Pick a virus", "The list on the left shows every registered virus."),
+            ("Reference genomes", (
+                "The virus's saved references. Add one from a GenBank file, download it, remove it, "
+                "or make it the **default**: the reference Run pipeline suggests when a query is "
+                "detected as this virus, so everyone in the lab runs on the same one."
+            )),
             ("Canonical aliases", (
                 "Each canonical name is a standard output name. Its aliases are the spellings found "
                 "in GenBank annotations, e.g. `GP5` and `ORF5 protein` for `ORF5`."
