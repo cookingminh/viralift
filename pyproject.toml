@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "viralift"
-version = "0.1.0"
+version = "0.2.0"
 description = "Reference-guided viral CDS annotation transfer and gene-name standardization using tblastn."
 readme = "README.md"
 requires-python = ">=3.10"
