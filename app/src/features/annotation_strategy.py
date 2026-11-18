@@ -118,6 +118,16 @@ def select_feature_type(
     return "CDS"
 
 
+def reference_levels(ref_feature_type: Optional[str]) -> Optional[Tuple[str, ...]]:
+    """The feature levels a run reads from query records: the reference's own.
+
+    A run whose reference is annotated with mat_peptides ignores the queries'
+    CDS features (and vice versa), so their genes always have a reference
+    counterpart. None (reference level unknown) allows both.
+    """
+    return (ref_feature_type,) if ref_feature_type else None
+
+
 def get_strategy(
     query_record: SeqRecord,
     alias_lookup: Optional[Dict] = None,

@@ -7,7 +7,9 @@
 # other gene on the record: if a missing gene's expected span falls outside
 # the record it is "not in sequence"; if it falls inside, the miss is real.
 #
-# Display only. The engine statuses, the CLI and the TSV output are unchanged.
+# Used twice: the UI shows such genes as "Not in sequence" (a display status;
+# the engine still reports `no_hit`), and the pipeline's lift-missing option
+# (app/src/lifting/missing_genes.py) skips searching for them.
 from typing import Callable, Dict, List, Optional, Sequence
 from app.src.lifting.base import LiftedFeature, PASS_STATUSES
 
@@ -79,17 +81,29 @@ def missing_genes_outside_record(
         return []
 
     maps = {id(a): _ref_to_query(a, record_length, ref_strands.get(a.name, "+")) for a in anchors}
+    # Annotated coordinates are sometimes sloppy (PV492667.1 annotates "VP1"
+    # over 1,032 bp, VP3's tail and 2A included), while a lifted gene is placed
+    # by aligning the reference protein. When the two disagree, the lifted
+    # genes alone decide.
+    groups = [anchors]
+    lifted = [a for a in anchors if a.method == "tblastn"]
+    if lifted and len(lifted) < len(anchors):
+        groups.append(lifted)
+
     outside = []
     for index, feature in enumerate(features):
         if feature.status != "no_hit" or feature.ref_start is None or feature.ref_end is None:
             continue
 
         # Where every located gene says this one starts; they must roughly agree.
-        predicted_starts = [maps[id(a)](feature.ref_start) for a in anchors]
-        if max(predicted_starts) - min(predicted_starts) > MAX_ANCHOR_SPREAD:
+        for group in groups:
+            predicted_starts = [maps[id(a)](feature.ref_start) for a in group]
+            if max(predicted_starts) - min(predicted_starts) <= MAX_ANCHOR_SPREAD:
+                break
+        else:
             continue
 
-        nearest = min(anchors, key=lambda a: (_ref_distance(a, feature), a.status not in PASS_STATUSES))
+        nearest = min(group, key=lambda a: (_ref_distance(a, feature), a.status not in PASS_STATUSES))
         to_query = maps[id(nearest)]
         lo, hi = sorted((to_query(feature.ref_start), to_query(feature.ref_end)))
         span = hi - lo + 1

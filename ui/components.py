@@ -25,7 +25,7 @@ UI_STATUS_TONE = {
     "ok_no_start_codon": "info",
     "ok_gap_filled": "info",
     "not_in_reference": "neutral",
-    "not_in_sequence": "neutral",  # display-only, see ui/gene_presence.py
+    "not_in_sequence": "neutral",  # display-only, see app/src/lifting/gene_presence.py
     "no_hit": "danger",
     "translation_fail": "danger",
 }

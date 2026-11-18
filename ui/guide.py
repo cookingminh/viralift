@@ -8,7 +8,7 @@ import streamlit as st
 from typing import Dict, List, Tuple
 from app.src.lifting.base import STATUS_META
 from ui.components import _status_badge, _status_label, _status_tone
-from ui.gene_presence import NOT_IN_SEQUENCE
+from app.src.lifting.gene_presence import NOT_IN_SEQUENCE
 from ui.i18n import _t
 
 
