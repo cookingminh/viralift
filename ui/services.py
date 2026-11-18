@@ -340,6 +340,7 @@ def _run_pipeline(
     ref_record, query_records, ref_features, ref_feature_type,
     effective_lookup, min_coverage, min_identity, evalue, rescue_window,
     progress_bar,
+    lift_missing: bool = True,
     virus_name: Optional[str] = None,
     alias_config_path=None,
     run_errors: Optional[List[Dict[str, str]]] = None,
@@ -380,6 +381,7 @@ def _run_pipeline(
             evalue=evalue,
             rescue_window=rescue_window,
             catch_record_errors=True,
+            lift_missing=lift_missing,
         ),
         progress_callback=update_progress,
     )

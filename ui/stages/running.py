@@ -55,6 +55,7 @@ def stage_running():
         evalue            = st.session_state.evalue,
         rescue_window     = st.session_state.rescue_window,
         progress_bar      = progress,
+        lift_missing      = st.session_state.lift_missing,
         virus_name        = st.session_state.virus_name,
         alias_config_path = st.session_state.alias_config_path,
         run_errors        = st.session_state.run_errors,

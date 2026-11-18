@@ -61,6 +61,7 @@ def _init_state():
         min_identity=0.3,
         evalue=1e-5,
         rescue_window=200,
+        lift_missing=True,      # lift reference genes an annotated record lacks
         bootstrap_alias_config=None,
         bootstrap_alias_config_path=None,
         bootstrap_suggestions=[],

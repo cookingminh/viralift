@@ -108,6 +108,8 @@ def _position_note(evidence: Dict) -> Optional[str]:
     genes = evidence.get("genes") or []
     if genes:
         values.update(first=genes[0], last=genes[-1], count=len(genes))
+    if verdict == "spans" and st.session_state.get("lift_missing"):
+        return _t("position_spans_lifted", **values)
     return _t(f"position_{verdict}", **values)
 
 

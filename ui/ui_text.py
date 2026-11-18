@@ -62,6 +62,14 @@ UI_TEXT = {
         "min_identity": "Min identity",
         "evalue": "E-value",
         "rescue_window": "Rescue window (bp)",
+        "lift_missing": "Lift genes the annotation is missing",
+        "lift_missing_help": (
+            "ON (default): when an annotated record does not name some reference genes (a genome "
+            "annotated only as P1/P2/P3 precursors, or short peptides such as 2A and 3B left out), "
+            "those genes are lifted with tblastn. The annotated genes are kept exactly as they are, "
+            "and genes that lie outside a partial record are not searched.\n\n"
+            "OFF: annotated records return only the genes they name (the CLI default)."
+        ),
         "use_ref_names": "Output the reference's own gene names",
         "use_ref_names_help": (
             "OFF (default): output canonical names from the alias config key (e.g. 'Lpro').\n\n"
@@ -113,6 +121,10 @@ UI_TEXT = {
         "position_summary": "Position check: {match} row(s) match one reference gene, {spans} span several genes, {other} undecided.",
         "position_match": "Position: matches {gene} at {start}–{end} · IoU {iou} · {agree}/{checked} records",
         "position_spans": "Position: spans {count} genes, {first}–{last}. A precursor, not one gene: keep it raw, or add a canonical for it.",
+        "position_spans_lifted": (
+            "Position: spans {count} genes, {first}–{last}. A precursor, not one gene: its genes are "
+            "lifted on their own (Lift genes the annotation is missing), so keeping it raw loses nothing."
+        ),
         "position_inside": "Position: lies inside {gene}. A sub-part, not a gene of its own.",
         "position_overlaps": "Position: only partly overlaps {gene} (IoU {iou}).",
         "position_mixed": "Position: the checked records disagree ({agree} of {checked} alike).",

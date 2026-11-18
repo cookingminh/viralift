@@ -19,7 +19,7 @@ import ui.stages.resolve
 from app.src.alias.alias_bootstrap import build_seed_alias_config_from_ref
 from app.src.features.ref_loader import prepare_reference_features
 from app.src.io.genbank_parser import load_genbank_records, load_single_genbank
-from app.src.pipeline import PipelineConfig, run_pipeline
+from app.src.pipeline import PipelineConfig, PipelineRunResult, run_pipeline
 from ui.state import REGISTRY_PATH
 
 
@@ -95,6 +95,31 @@ def test_setup_step_renders_with_continue_disabled():
     _assert_clean(at)
     continue_button = next(button for button in at.button if button.label == "Continue")
     assert continue_button.disabled
+
+
+def test_setup_lifts_missing_genes_by_default():
+    at = _app()
+    at.run()
+    toggle = next(t for t in at.toggle if t.label == "Lift genes the annotation is missing")
+    assert toggle.value is True
+    toggle.set_value(False).run()
+    _assert_clean(at)
+    assert at.session_state["lift_missing"] is False
+
+
+@pytest.mark.parametrize("lift_missing", [True, False])
+def test_run_uses_the_lift_missing_choice(prrs_run, monkeypatch, lift_missing):
+    seen = []
+
+    def fake_run_pipeline(**kwargs):
+        seen.append(kwargs["config"].lift_missing)
+        return PipelineRunResult(all_results=prrs_run["all_results"])
+
+    monkeypatch.setattr(ui.services, "run_pipeline", fake_run_pipeline)
+    at = _app(**prrs_run, stage="running", lift_missing=lift_missing)
+    at.run()
+    _assert_clean(at)
+    assert seen == [lift_missing]
 
 
 @pytest.mark.parametrize("mode", ["Data crawler", "Alias manager"])

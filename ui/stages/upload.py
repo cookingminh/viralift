@@ -182,6 +182,11 @@ def stage_upload():
             value=False,
             help=_t("use_ref_names_help"),
         )
+        st.session_state.lift_missing = st.toggle(
+            _t("lift_missing"),
+            value=st.session_state.lift_missing,
+            help=_t("lift_missing_help"),
+        )
         with st.expander(_t("lifting_thresholds"), expanded=False):
             st.caption(_t("threshold_caption"))
             c1, c2, c3, c4 = st.columns(4)
