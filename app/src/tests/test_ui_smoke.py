@@ -107,6 +107,7 @@ def test_setup_lifts_missing_genes_by_default():
     assert at.session_state["lift_missing"] is False
 
 
+@requires_sample_data
 @pytest.mark.parametrize("lift_missing", [True, False])
 def test_run_uses_the_lift_missing_choice(prrs_run, monkeypatch, lift_missing):
     seen = []
