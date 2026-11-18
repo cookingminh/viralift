@@ -21,7 +21,7 @@ from app.src.alias.gene_alias import (
     lookup_field_value,
     normalize_text,
 )
-from app.src.features.annotation_strategy import select_feature_type
+from app.src.features.annotation_strategy import reference_levels, select_feature_type
 from app.src.io.genbank_parser import _LOOKUP_QUALIFIER_KEYS
 from app.src.io.run_logger import log_alias_added, log_canonical_added, log_run_complete, log_run_start
 from app.src.pipeline import PipelineConfig, run_pipeline
@@ -107,7 +107,9 @@ def _continue_with_existing_alias_config(entry: Dict, save_keyword: Optional[str
     alias_lookup = load_alias_lookup(alias_config_path)
     ref_features = apply_alias_to_features(st.session_state.ref_features, alias_lookup)
     excluded = _load_excluded_names(alias_config_path)
-    unknown = _scan_unknown_names(st.session_state.query_records, alias_lookup, excluded)
+    unknown = _scan_unknown_names(
+        st.session_state.query_records, alias_lookup, excluded, st.session_state.ref_feature_type,
+    )
     unknown_ref = _scan_unknown_ref_names(ref_features, excluded)
 
     st.session_state.ref_features = ref_features
@@ -139,6 +141,7 @@ def _scan_unknown_names(
     query_records: List[SeqRecord],
     alias_lookup: Dict[str, str],
     excluded_names: set,
+    ref_feature_type: Optional[str] = None,
 ) -> Dict[str, Dict]:
     """
     Return one entry per exact set of unresolved names in the query records
@@ -163,7 +166,10 @@ def _scan_unknown_names(
     key_by_names: Dict[frozenset, str] = {}
 
     for rec in query_records:
-        selected_feature_type = select_feature_type(rec, alias_lookup)
+        # Only the level the run reads: with a mat_peptide reference a record's
+        # CDS names are never used (pipeline.run_pipeline), so asking about
+        # them would be a decision with no effect.
+        selected_feature_type = select_feature_type(rec, alias_lookup, allowed_types=reference_levels(ref_feature_type))
         if selected_feature_type is None:
             continue
 

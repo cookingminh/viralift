@@ -70,7 +70,9 @@ def _review_context(unknown: Dict[str, Dict]) -> Dict:
         bar.progress(done / total if total else 1.0, text=_t("position_progress", done=done, total=total))
 
     try:
-        evidence = position_evidence(unknown, records, lookup, excluded, lift, progress)
+        evidence = position_evidence(
+            unknown, records, lookup, excluded, lift, progress, st.session_state.ref_feature_type,
+        )
         status = "ok"
     except Exception as e:  # e.g. BLAST+ missing: the review still works without it
         log_error("position check for review names", e)
@@ -81,7 +83,7 @@ def _review_context(unknown: Dict[str, Dict]) -> Dict:
         "for": unknown,
         "evidence": evidence,
         "status": status,
-        "patterns": name_patterns(records.values(), lookup, excluded),
+        "patterns": name_patterns(records.values(), lookup, excluded, st.session_state.ref_feature_type),
     }
     st.session_state.review_context = context
     # Pre-fill each row once from a decisive position; the user's choice then stands.

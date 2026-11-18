@@ -20,7 +20,7 @@ from Bio.SeqRecord import SeqRecord
 from app.src.alias.alias_bootstrap import compute_iou
 from app.src.alias.alias_classifier import _is_generic_name
 from app.src.alias.gene_alias import apply_alias_to_feature, normalize_text
-from app.src.features.annotation_strategy import select_feature_type
+from app.src.features.annotation_strategy import reference_levels, select_feature_type
 from app.src.io.genbank_parser import _LOOKUP_QUALIFIER_KEYS
 from app.src.lifting.base import LiftedFeature
 
@@ -118,10 +118,11 @@ def locate_names(
     names: NameSet,
     alias_lookup: Dict[str, str],
     excluded_names: Set[str],
+    ref_feature_type: Optional[str] = None,
 ) -> List[Tuple[str, int, int]]:
     """(feature_type, start, end) of the features in `record` that carry exactly
     these non-excluded names, on the feature level the pipeline would use."""
-    feature_type = select_feature_type(record, alias_lookup)
+    feature_type = select_feature_type(record, alias_lookup, allowed_types=reference_levels(ref_feature_type))
     spans = []
     for feature in record.features:
         if feature.type != feature_type:
@@ -139,6 +140,7 @@ def position_evidence(
     excluded_names: Set[str],
     lift: Callable[[SeqRecord], List[LiftedFeature]],
     progress: Optional[Callable[[int, int, str], None]] = None,
+    ref_feature_type: Optional[str] = None,
 ) -> Dict[str, Dict]:
     """Position verdict per row, lifting each sampled record once."""
     placements: Dict[str, List[Tuple[str, str, int, int]]] = {}
@@ -149,7 +151,7 @@ def position_evidence(
             record = records.get(record_id)
             if record is None:
                 continue
-            spans = locate_names(record, names, alias_lookup, excluded_names)
+            spans = locate_names(record, names, alias_lookup, excluded_names, ref_feature_type)
             if spans:
                 feature_type, start, end = spans[0]
                 found.append((record_id, feature_type, start, end))
@@ -212,12 +214,13 @@ def name_patterns(
     records: Iterable[SeqRecord],
     alias_lookup: Dict[str, str],
     excluded_names: Set[str],
+    ref_feature_type: Optional[str] = None,
 ) -> List[Dict]:
     """Every distinct qualifier pattern on the feature level the pipeline uses,
     with its non-excluded name set and how many features carry it."""
     counts: Counter = Counter()
     for record in records:
-        feature_type = select_feature_type(record, alias_lookup)
+        feature_type = select_feature_type(record, alias_lookup, allowed_types=reference_levels(ref_feature_type))
         if feature_type is None:
             continue
         for feature in record.features:

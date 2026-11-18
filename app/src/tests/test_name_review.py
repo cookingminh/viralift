@@ -70,6 +70,24 @@ def test_rows_are_one_per_exact_name_set():
     assert len(rows) == 3
 
 
+def test_rows_only_cover_the_feature_level_the_run_reads():
+    # With a mat_peptide reference the run never reads a query's CDS names:
+    # PX569380.1 (one CDS "P1"/"capsid protein") is lifted with tblastn, so a
+    # decision on its names would have no effect. DQ248888.1 names its peptides
+    # "P1 precursor", which the run does read.
+    cds_only = _record("PX569380.1", (1, 2208, {"product": "P1", "note": "capsid protein"}))
+    peptides = _record("DQ248888.1", length=8104)
+    peptides.features.append(SeqFeature(
+        FeatureLocation(1041, 3846, strand=1), type="mat_peptide", qualifiers={"product": ["P1 precursor"]},
+    ))
+    records = [cds_only, peptides]
+
+    assert list(_scan_unknown_names(records, {}, set(), ref_feature_type="mat_peptide")) == ["P1 precursor"]
+    assert [p["values"] for p in name_patterns(records, {}, set(), "mat_peptide")] == [["P1 precursor"]]
+    # Without the reference level, both levels are read (the old behaviour).
+    assert set(_scan_unknown_names(records, {}, set())) == {"P1", "P1 precursor"}
+
+
 # ── position verdicts ─────────────────────────────────────────────────────
 
 def test_span_on_one_gene_is_a_match():

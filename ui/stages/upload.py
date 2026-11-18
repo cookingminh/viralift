@@ -267,7 +267,7 @@ def stage_upload():
 
                 # scan for unknown names in query records AND in ref
                 excluded = _load_excluded_names(alias_config_path)
-                unknown     = _scan_unknown_names(query_records, alias_lookup, excluded)
+                unknown     = _scan_unknown_names(query_records, alias_lookup, excluded, ref_feature_type)
                 unknown_ref = _scan_unknown_ref_names(ref_features, excluded)
             except Exception as e:
                 log_error("loading UI inputs", e)
