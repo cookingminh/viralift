@@ -3,11 +3,12 @@ from typing import Callable, Dict, List, Optional, Tuple
 
 from Bio.SeqRecord import SeqRecord
 
-from app.src.features.annotation_strategy import get_strategy
+from app.src.features.annotation_strategy import get_strategy, reference_levels
 from app.src.features.direct_extractor import direct_extract_with_alias
 from app.src.io.result_writer import summarize_counts
 from app.src.io.run_logger import log_error
 from app.src.lifting.base import LiftedFeature
+from app.src.lifting.missing_genes import add_missing_genes
 from app.src.lifting.tblastn_lifter import process_one_query_record
 
 
@@ -21,6 +22,10 @@ class PipelineConfig:
     evalue: float = 1e-5
     rescue_window: int = 200
     catch_record_errors: bool = False
+    # Also lift, with tblastn, the reference genes an annotated record does not
+    # name (app/src/lifting/missing_genes.py). Off by default so the CLI output
+    # stays as validated; the UI turns it on.
+    lift_missing: bool = False
 
 
 @dataclass
@@ -29,6 +34,7 @@ class PipelineRunResult:
     summary: Dict[str, int] = field(default_factory=dict)
     direct_count: int = 0
     lifted_count: int = 0
+    missing_lifted_count: int = 0    # annotated records that were also lifted
     errors: List[Dict[str, str]] = field(default_factory=list)
 
 
@@ -63,9 +69,25 @@ def run_pipeline(
         strategy, query_feature_type = get_strategy(
             query_record,
             alias_lookup,
-            allowed_types=(ref_feature_type,) if ref_feature_type else None,
+            allowed_types=reference_levels(ref_feature_type),
         )
 
+        def lift() -> List[LiftedFeature]:
+            return process_one_query_record(
+                ref_record=ref_record,
+                query_record=query_record,
+                ref_cds=ref_features,
+                ref_feature_type=ref_feature_type,
+                min_coverage=cfg.min_coverage,
+                min_identity=cfg.min_identity,
+                evalue=cfg.evalue,
+                rescue_window=cfg.rescue_window,
+                quiet=True,
+            )
+
+        # A failure keeps whatever rows the record already has, so a failed
+        # missing-gene lift still returns the annotated genes.
+        features: List[LiftedFeature] = []
         try:
             if strategy == "direct":
                 features = direct_extract_with_alias(
@@ -75,25 +97,19 @@ def run_pipeline(
                     alias_lookup=alias_lookup,
                 )
                 result.direct_count += 1
+                if cfg.lift_missing:
+                    features, lifted = add_missing_genes(
+                        features, ref_features, len(query_record.seq), lift,
+                    )
+                    result.missing_lifted_count += lifted
             else:
-                features = process_one_query_record(
-                    ref_record=ref_record,
-                    query_record=query_record,
-                    ref_cds=ref_features,
-                    ref_feature_type=ref_feature_type,
-                    min_coverage=cfg.min_coverage,
-                    min_identity=cfg.min_identity,
-                    evalue=cfg.evalue,
-                    rescue_window=cfg.rescue_window,
-                    quiet=True,
-                )
+                features = lift()
                 result.lifted_count += 1
         except Exception as exc:
             if not cfg.catch_record_errors:
                 raise
             log_error(f"processing record {query_record.id}", exc)
             result.errors.append({"record_id": query_record.id, "error": str(exc)})
-            features = []
 
         result.all_results.append((query_record.id, features))
 

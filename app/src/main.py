@@ -68,6 +68,11 @@ def parse_args() -> argparse.Namespace:
                         default=str(DEFAULT_REGISTRY_PATH),
                         help="Path to virus alias registry. "
                              "Default: the registry shipped with the package.")
+    parser.add_argument("--lift-missing", action="store_true",
+                        help="Also lift, with tblastn, the reference genes an annotated record\n"
+                             "does not name (e.g. a genome annotated only as P1/P2/P3\n"
+                             "precursors, or missing short peptides such as 2A/3B).\n"
+                             "Off by default; the annotated rows are never changed.")
     parser.add_argument("--quiet", action="store_true",
                         help="Reduce console output.")
     return parser.parse_args()
@@ -138,6 +143,7 @@ def main() -> None:
             min_identity=args.min_identity,
             evalue=args.evalue,
             rescue_window=args.rescue_window,
+            lift_missing=args.lift_missing,
         ),
         progress_callback=update_progress,
     )
@@ -148,6 +154,8 @@ def main() -> None:
     print("\nRun summary")
     print(f"  Query records processed : {len(query_records)}")
     print(f"    Direct (annotated)    : {run_result.direct_count}")
+    if args.lift_missing:
+        print(f"      + missing genes lifted: {run_result.missing_lifted_count}")
     print(f"    Lifted (tblastn)      : {run_result.lifted_count}")
     for status, count in run_result.summary.items():
         label = STATUS_LABELS.get(status, status)

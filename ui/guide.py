@@ -8,7 +8,7 @@ import streamlit as st
 from typing import Dict, List, Tuple
 from app.src.lifting.base import STATUS_META
 from ui.components import _status_badge, _status_label, _status_tone
-from ui.gene_presence import NOT_IN_SEQUENCE
+from app.src.lifting.gene_presence import NOT_IN_SEQUENCE
 from ui.i18n import _t
 
 
@@ -41,10 +41,16 @@ PAGE_GUIDES: Dict[str, Dict[str, object]] = {
                 "Off: canonical names from the alias config, e.g. `Lpro`. "
                 "On: the reference's own gene names, e.g. `Lab`."
             )),
+            ("Lift genes the annotation is missing", (
+                "On (default): reference genes an annotated record does not name, such as a genome "
+                "annotated only as P1/P2/P3 precursors or with 2A and 3B left out, are lifted with "
+                "tblastn. Its annotated genes stay exactly as they are; such a record shows "
+                "**Direct + tblastn** in the Records table. Off: annotated records return only the genes they name."
+            )),
             ("Change thresholds only if needed", (
                 "**Min coverage** and **Min identity** decide when a tblastn hit is accepted, "
                 "**E-value** drops weak hits, and **Rescue window** is how far (bp) a start or stop "
-                "codon may move to repair a boundary. They do not affect direct records."
+                "codon may move to repair a boundary. They do not affect genes taken from the annotation."
             )),
             ("Continue", (
                 "ViraLift reads both files and detects the virus from the reference metadata. "
@@ -240,7 +246,8 @@ STAGE_TOPICS = {
 METHOD_GUIDE = [
     ("Direct", "The record is already annotated", (
         "Its CDS or mat_peptide names are matched against the alias config and renamed to canonical "
-        "names. Coordinates stay exactly as annotated."
+        "names. Coordinates stay exactly as annotated. Reference genes the annotation does not name "
+        "are lifted with tblastn (Setup option **Lift genes the annotation is missing**, on by default)."
     )),
     ("tblastn", "The record has no usable annotation", (
         "Each reference protein is searched in the genome. The best hits are merged, checked for a "

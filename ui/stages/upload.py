@@ -182,6 +182,11 @@ def stage_upload():
             value=False,
             help=_t("use_ref_names_help"),
         )
+        st.session_state.lift_missing = st.toggle(
+            _t("lift_missing"),
+            value=st.session_state.lift_missing,
+            help=_t("lift_missing_help"),
+        )
         with st.expander(_t("lifting_thresholds"), expanded=False):
             st.caption(_t("threshold_caption"))
             c1, c2, c3, c4 = st.columns(4)
@@ -267,7 +272,7 @@ def stage_upload():
 
                 # scan for unknown names in query records AND in ref
                 excluded = _load_excluded_names(alias_config_path)
-                unknown     = _scan_unknown_names(query_records, alias_lookup, excluded)
+                unknown     = _scan_unknown_names(query_records, alias_lookup, excluded, ref_feature_type)
                 unknown_ref = _scan_unknown_ref_names(ref_features, excluded)
             except Exception as e:
                 log_error("loading UI inputs", e)

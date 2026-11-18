@@ -466,7 +466,9 @@ def stage_bootstrap_alias():
                 alias_lookup,
             )
             excluded = _load_excluded_names(absolute_config_path)
-            unknown = _scan_unknown_names(st.session_state.query_records, alias_lookup, excluded)
+            unknown = _scan_unknown_names(
+                st.session_state.query_records, alias_lookup, excluded, st.session_state.ref_feature_type,
+            )
             unknown_ref = _scan_unknown_ref_names(ref_features, excluded)
 
             st.session_state.ref_features = ref_features

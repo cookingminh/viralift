@@ -3,7 +3,7 @@
 #
 # Partial query records (e.g. VP1-only sequences) are common in NCBI downloads.
 # Genes that fall outside such a record are shown as "Not in sequence"
-# (ui/gene_presence.py) and kept out of the pass rate and review counts; the
+# (app/src/lifting/gene_presence.py) and kept out of the pass rate and review counts; the
 # engine's own statuses, used by every export, are left untouched.
 import dataclasses
 import hashlib
@@ -31,7 +31,7 @@ from ui.components import (
     _status_cell,
     _status_column,
 )
-from ui.gene_presence import NOT_IN_SEQUENCE, missing_genes_outside_record, nothing_located
+from app.src.lifting.gene_presence import NOT_IN_SEQUENCE, missing_genes_outside_record, nothing_located
 from ui.guide import FEATURE_COLUMN_HELP, RECORD_COLUMN_HELP, _open_guide, _render_table_help
 from ui.i18n import _t
 from ui.services import _canonical_to_ref_map, _results_to_df, _selected_dataframe_rows

@@ -1,4 +1,4 @@
-"""Worked examples for ui/gene_presence.py: which `no_hit` genes are outside a
+"""Worked examples for app/src/lifting/gene_presence.py: which `no_hit` genes are outside a
 partial record and which are real misses.
 
 Reference coordinates are FMDV FJ175661 (8,287 bp, 12 mat_peptides). The
@@ -6,7 +6,7 @@ records mirror real ones from an NCBI FMDV download: AJ294911.1 (VP1 only),
 PV658500.1 (capsid region) and PP066264.1 (garbled, 2A really missing).
 """
 from app.src.lifting.base import LiftedFeature
-from ui.gene_presence import missing_genes_outside_record, nothing_located
+from app.src.lifting.gene_presence import missing_genes_outside_record, nothing_located
 
 FMDV_REF = {
     "Lpro": (1184, 1786), "VP4": (1787, 2041), "VP2": (2042, 2695), "VP3": (2696, 3355),
@@ -83,3 +83,19 @@ def test_record_with_nothing_located():
     assert missing_genes_outside_record(features, 500) == []
     assert nothing_located(features)
     assert not nothing_located(_record({"VP1": (1, 633, "ok")}))
+
+
+def test_lifted_genes_win_over_a_sloppy_annotation():
+    # PV492667.1, 1,032 bp, annotated with one "VP1" peptide over 1-1032 (the real
+    # VP1 is 633 bp). With lift-missing, tblastn finds VP3's tail at 1-324 and 2A
+    # at 958-1011, both giving q = r - 3031; the annotation implies q = r - 3355.
+    # The lifted genes decide, so the misses are all outside the record.
+    features = _record({"VP3": (1, 324, "low_coverage"), "2A": (958, 1011, "ok")})
+    vp1 = next(f for f in features if f.name == "VP1")
+    vp1.query_start, vp1.query_end, vp1.status, vp1.method, vp1.coverage = 1, 1032, "ok", "direct", 1.0
+    assert _outside_names(features, 1032) == {"Lpro", "VP4", "VP2", "2B", "2C", "3A", "3B", "3Cpro", "3Dpol"}
+
+    # Annotated genes alone that disagree still leave every miss for review.
+    for f in features:
+        f.method = "direct"
+    assert _outside_names(features, 1032) == set()

@@ -88,7 +88,17 @@ pip install -r ui/requirements.txt
 streamlit run ui/streamlit_app.py
 ```
 
-> **BLAST+** is only needed for the tblastn path (assigning annotation to records that lack it). The name-standardisation (alias) path does not need BLAST+.
+> **BLAST+** is only needed for tblastn: assigning annotation to records that lack it, and lifting the genes an annotated record does not name. Name standardisation alone does not need BLAST+.
+
+### Command line
+
+The same pipeline runs without the UI:
+
+```bash
+python -m app.src.main --reference ref.gb --query genomes.gb --output output/run
+```
+
+An annotated record keeps its own coordinates and, by default, returns only the genes it names. Add `--lift-missing` to also lift, with tblastn, the reference genes it does not name: a genome annotated only as P1/P2/P3 precursors, or with short peptides such as 2A and 3B left out. The annotated rows are not changed, and genes that lie outside a partial record are not searched. The flag is off on the command line so the output matches earlier validated runs; the app turns it on (Setup → *Lift genes the annotation is missing*). `python -m app.src.main --help` lists every option.
 
 ### Optional LLM alias review
 
