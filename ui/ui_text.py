@@ -268,5 +268,6 @@ UI_TEXT = {
         "status_ambiguous_name": "Excluded name",
         "status_not_in_reference": "Not in reference",
         "status_not_in_sequence": "Not in sequence",
+        "status_overlong_annotation": "Longer than gene",
     },
 }

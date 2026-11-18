@@ -15,7 +15,7 @@
 # gene lies outside a partial record nothing is searched.
 from typing import Callable, Dict, List, Sequence, Tuple
 
-from app.src.lifting.base import LiftedFeature
+from app.src.lifting.base import LiftedFeature, PASS_STATUSES
 from app.src.lifting.gene_presence import missing_genes_outside_record
 
 
@@ -23,8 +23,12 @@ def missing_reference_indexes(
     direct_features: Sequence[LiftedFeature],
     ref_features: Sequence[Dict],
 ) -> List[int]:
-    """Indexes of the reference features that no direct row resolved to."""
-    found = {f.name for f in direct_features if f.status == "ok"}
+    """Indexes of the reference features that no direct row resolved to.
+
+    A gene the annotation check flagged (or replaced) is still present: it has
+    a row, just not a clean one.
+    """
+    found = {f.name for f in direct_features if f.status == "ok" or f.annotation_check}
     return [i for i, ref in enumerate(ref_features) if ref["name"] not in found]
 
 
@@ -65,7 +69,9 @@ def add_missing_genes(
         return direct_features, False
 
     placeholders = [_unsearched_row(ref_features[i]) for i in missing]
-    anchors = [f for f in direct_features if f.status == "ok" and f.ref_start is not None]
+    # Only clean rows place the record: a flagged annotation's coordinates are
+    # exactly what is in doubt.
+    anchors = [f for f in direct_features if f.status in PASS_STATUSES and f.ref_start is not None]
     ref_strands = {ref["name"]: ref.get("strand", "+") for ref in ref_features}
     outside = set(missing_genes_outside_record(anchors + placeholders, record_length, ref_strands))
     if all(len(anchors) + n in outside for n in range(len(missing))):

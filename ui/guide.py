@@ -284,11 +284,22 @@ STATUS_GUIDE = {
     "invalid_boundaries": (
         "Strong protein match, but the CDS fails the start, stop or frame check and could not be repaired."
     ),
-    "low_coverage": "The alignment covers less of the reference protein than Min coverage.",
-    "low_identity": "The alignment's amino-acid identity is below Min identity.",
+    "low_coverage": (
+        "The alignment covers less of the reference protein than Min coverage. For an annotated gene "
+        "the annotation check found it partial, e.g. a 69 nt \"VP1\" fragment of a short record."
+    ),
+    "low_identity": (
+        "The alignment's amino-acid identity is below Min identity. For an annotated gene this often "
+        "means the wrong name: the detail panel names the reference gene it really matches."
+    ),
     "low_coverage_and_identity": "Both coverage and identity are below their thresholds.",
     "no_hit": "tblastn found no significant match for this reference protein.",
     "translation_fail": "The reference feature could not be translated into a protein, so it was not searched.",
+    "overlong_annotation": (
+        "Annotation check: the annotated gene is clearly longer than the reference gene, e.g. a "
+        "\"VP1\" of 1,032 nt that also holds VP3's tail and 2A. When tblastn places the gene, its "
+        "row is used instead; this status means it could not, so the annotation is kept for review."
+    ),
     "unresolved_name": (
         "Direct: the annotated name is not in the alias config and was not mapped, so it keeps its raw name."
     ),

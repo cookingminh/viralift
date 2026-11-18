@@ -40,6 +40,9 @@ def summarize_counts(all_results: List[Tuple[str, List]]) -> Dict[str, int]:
     return summary
 
 
+CHECK_FIELDS = ["annotation_check", "best_match", "annotation_start", "annotation_end"]
+
+
 def write_results_tsv(all_results: List[Tuple[str, List]], out_path: Path) -> None:
     """
     Write extracted feature results from all query records to a TSV file.
@@ -79,7 +82,22 @@ def write_results_tsv(all_results: List[Tuple[str, List]], out_path: Path) -> No
                 "rescue_offset":   lifted.rescue_offset,
                 "rescue_action":   lifted.rescue_action,
                 "length":         len(lifted.sequence) if lifted.sequence else None,
+                # Annotation check: the verdict on the record's own annotation and,
+                # when tblastn replaced it, where the annotation was.
+                "annotation_check": lifted.annotation_check or "",
+                "best_match":       lifted.best_match or "",
+                "annotation_start": lifted.annotation.query_start if lifted.annotation else None,
+                "annotation_end":   lifted.annotation.query_end if lifted.annotation else None,
             })
+
+    # The check's columns appear only when it ran, so a run without it writes
+    # exactly the columns it always did.
+    if any(row["annotation_check"] for row in rows):
+        fieldnames += CHECK_FIELDS
+    else:
+        for row in rows:
+            for field in CHECK_FIELDS:
+                del row[field]
 
     # Always write the file — even with no rows, emit a header-only TSV so
     # downstream consumers can rely on the output path existing.

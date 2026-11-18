@@ -98,7 +98,9 @@ The same pipeline runs without the UI:
 python -m app.src.main --reference ref.gb --query genomes.gb --output output/run
 ```
 
-An annotated record keeps its own coordinates and, by default, returns only the genes it names. Add `--lift-missing` to also lift, with tblastn, the reference genes it does not name: a genome annotated only as P1/P2/P3 precursors, or with short peptides such as 2A and 3B left out. The annotated rows are not changed, and genes that lie outside a partial record are not searched. The flag is off on the command line so the output matches earlier validated runs; the app turns it on (Setup → *Lift genes the annotation is missing*). `python -m app.src.main --help` lists every option.
+An annotated record keeps its own coordinates and, by default, returns only the genes it names. Add `--lift-missing` to also lift, with tblastn, the reference genes it does not name: a genome annotated only as P1/P2/P3 precursors, or with short peptides such as 2A and 3B left out. The annotated rows are not changed, and genes that lie outside a partial record are not searched. The flag is off on the command line so the output matches earlier validated runs; the app turns it on (Setup → *Lift genes the annotation is missing*).
+
+Add `--check-annotations` to check every annotated gene against the reference protein of the same name: the annotated sequence is translated and aligned to it, so its coverage and identity are measured rather than assumed (a 69 nt "VP1" fragment gets 11%, not 100%), and the same Min coverage / Min identity thresholds apply. A gene that fails (partial, too divergent, or clearly longer than the gene, e.g. a 1,032 nt "VP1" that also holds VP3's tail and 2A) is searched with tblastn, whose row replaces it when it places the gene differently. The TSV then gains `annotation_check`, `best_match`, `annotation_start` and `annotation_end` columns. Off on the command line, on in the app (Setup → *Check annotations against the reference*). `python -m app.src.main --help` lists every option.
 
 ### Optional LLM alias review
 
