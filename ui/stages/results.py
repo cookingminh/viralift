@@ -32,6 +32,7 @@ from ui.components import (
     _status_column,
 )
 from app.src.lifting.gene_presence import NOT_IN_SEQUENCE, missing_genes_outside_record, nothing_located
+from ui.fasta_names import FIELDS, MISSING, PRESETS, SEPARATORS, build_header, load_settings, make_unique, record_metadata, save_settings
 from ui.guide import FEATURE_COLUMN_HELP, RECORD_COLUMN_HELP, _open_guide, _render_table_help
 from ui.i18n import _t
 from ui.services import _canonical_to_ref_map, _results_to_df, _selected_dataframe_rows
@@ -553,6 +554,79 @@ def _render_approval_editor(rows: List[FeatureRow]) -> None:
             )
 
 
+def _record_metadata(query_id: str) -> Dict[str, str]:
+    """Source metadata of a query record, cached for the run."""
+    cache = st.session_state.setdefault("record_metadata", {})
+    if query_id not in cache:
+        record = next((r for r in st.session_state.query_records or [] if r.id == query_id), None)
+        cache[query_id] = record_metadata(record) if record is not None else {"accession": query_id}
+    return cache[query_id]
+
+
+def _fasta_header(settings: Dict, query_id: str, lf: LiftedFeature, gene: str) -> str:
+    return build_header(
+        settings["fields"], settings["separator"], settings["missing"], _record_metadata(query_id), gene, lf,
+    )
+
+
+def _apply_name_preset(name: str) -> None:
+    preset = PRESETS[name]
+    st.session_state.fasta_name_fields = list(preset["fields"])
+    st.session_state.fasta_name_separator = preset["separator"]
+    st.session_state.fasta_name_missing = preset["missing"]
+    _save_name_settings()
+
+
+def _current_name_settings() -> Dict:
+    return {
+        "fields": list(st.session_state.get("fasta_name_fields") or []),
+        "separator": st.session_state.get("fasta_name_separator"),
+        "missing": st.session_state.get("fasta_name_missing"),
+    }
+
+
+def _save_name_settings() -> None:
+    """Remember the naming for the next run and the next session."""
+    try:
+        save_settings(_current_name_settings())
+    except OSError:
+        pass  # a read-only config folder only loses the convenience
+
+
+def _render_fasta_name_controls() -> Dict:
+    """The sequence-name picker; returns the settings to build headers with."""
+    if "fasta_name_fields" not in st.session_state:
+        saved = load_settings()
+        st.session_state.fasta_name_fields = saved["fields"]
+        st.session_state.fasta_name_separator = saved["separator"]
+        st.session_state.fasta_name_missing = saved["missing"]
+
+    with st.container(horizontal=True, horizontal_alignment="distribute", vertical_alignment="center"):
+        st.markdown(f"**{_t('fasta_names')}**")
+        with st.container(horizontal=True, gap="small", width="content"):
+            st.button(_t("fasta_names_default"), key="fasta_preset_default", type="tertiary",
+                      on_click=_apply_name_preset, args=("default",))
+            st.button(_t("fasta_names_isolate_host"), key="fasta_preset_isolate_host", type="tertiary",
+                      on_click=_apply_name_preset, args=("accession_isolate_host",))
+    col_fields, col_sep, col_missing = st.columns([4, 1, 1])
+    col_fields.multiselect(
+        _t("fasta_name_fields"), list(FIELDS), format_func=FIELDS.get, key="fasta_name_fields",
+        help=_t("fasta_name_fields_help"), on_change=_save_name_settings,
+    )
+    col_sep.segmented_control(
+        _t("fasta_name_separator"), list(SEPARATORS), required=True, key="fasta_name_separator",
+        on_change=_save_name_settings,
+    )
+    col_missing.segmented_control(
+        _t("fasta_name_missing"), list(MISSING), required=True, key="fasta_name_missing",
+        help=_t("fasta_name_missing_help"), on_change=_save_name_settings,
+    )
+    settings = _current_name_settings()
+    if not settings["fields"]:
+        settings["fields"] = ["accession"]
+    return settings
+
+
 def _render_export_view(
     rows: List[FeatureRow],
     df: pd.DataFrame,
@@ -607,6 +681,8 @@ def _render_export_view(
             key="fasta_mode",
         )
 
+        name_settings = _render_fasta_name_controls()
+
         st.markdown(f"**{_t('quality_filter')}**")
         qf_col1, qf_col2, qf_col3, qf_col4 = st.columns(4, vertical_alignment="center")
         min_cov_export = qf_col1.slider(_t("min_coverage"), 0.0, 1.0, 0.5, 0.05)
@@ -636,9 +712,22 @@ def _render_export_view(
                 return False
             return True
 
-        candidate_count = sum(
-            1 for query_id, lf, gene in rows if _passes_fasta_filters(query_id, lf, gene)
-        )
+        candidates = [(query_id, lf, gene) for query_id, lf, gene in rows if _passes_fasta_filters(query_id, lf, gene)]
+        candidate_count = len(candidates)
+        if candidates:
+            # Preview the first file as it will be downloaded.
+            if fasta_mode == _t("all_fasta"):
+                file_name = "all_genes.fasta"
+                first_file = [row for gene in selected_genes for row in candidates if row[2] == gene]
+                if "gene" not in name_settings["fields"] and len(selected_genes) > 1:
+                    st.caption(_t("fasta_names_add_gene"))
+            else:
+                first_gene = next(gene for gene in selected_genes if any(row[2] == gene for row in candidates))
+                file_name = f"{first_gene}.fasta"
+                first_file = [row for row in candidates if row[2] == first_gene]
+            headers = make_unique([_fasta_header(name_settings, *row) for row in first_file], name_settings["separator"])
+            st.caption(_t("fasta_name_preview", file=file_name))
+            st.code("\n".join(f">{header}" for header in headers[:3]), language=None)
 
         with st.container(horizontal=True, horizontal_alignment="distribute", vertical_alignment="center"):
             st.caption(_t("candidate_count", count=candidate_count))
@@ -650,23 +739,35 @@ def _render_export_view(
             )
 
         if generate:
-            # build gene to sequences dict (keyed by display name)
-            gene_seqs: Dict[str, List[str]] = {g: [] for g in selected_genes}
+            # gene -> [(header, sequence)], keyed by display name
+            gene_entries: Dict[str, List[Tuple[str, str]]] = {g: [] for g in selected_genes}
             skipped = 0
 
             for query_id, lf, gene in rows:
-                if gene not in gene_seqs:
+                if gene not in gene_entries:
                     continue
                 if not _passes_fasta_filters(query_id, lf, gene):
                     skipped += 1
                     continue
-                header = f">{query_id}|{gene}|{lf.query_start}|{lf.query_end}|{lf.strand}"
-                gene_seqs[gene].append(f"{header}\n{lf.sequence}")
+                gene_entries[gene].append((_fasta_header(name_settings, query_id, lf, gene), lf.sequence))
+
+            # Names must be unique within each downloaded file.
+            separator = name_settings["separator"]
+            renamed = 0
+            if fasta_mode == _t("all_fasta"):
+                entries = [entry for gene in selected_genes for entry in gene_entries[gene]]
+                headers = make_unique([header for header, _ in entries], separator)
+                renamed += sum(1 for (header, _), new in zip(entries, headers) if header != new)
+                gene_seqs = {"all": [f">{h}\n{seq}" for h, (_, seq) in zip(headers, entries)]}
+            else:
+                gene_seqs = {}
+                for gene in selected_genes:
+                    headers = make_unique([header for header, _ in gene_entries[gene]], separator)
+                    renamed += sum(1 for (header, _), new in zip(gene_entries[gene], headers) if header != new)
+                    gene_seqs[gene] = [f">{h}\n{seq}" for h, (_, seq) in zip(headers, gene_entries[gene])]
 
             if fasta_mode == _t("all_fasta"):
-                all_seqs = "\n".join(
-                    seq for gene in selected_genes for seq in gene_seqs[gene]
-                )
+                all_seqs = "\n".join(gene_seqs["all"])
                 st.download_button(
                     _t("download_all_fasta"),
                     data=all_seqs,
@@ -698,6 +799,8 @@ def _render_export_view(
 
             if skipped:
                 st.caption(_t("skipped", count=skipped))
+            if renamed:
+                st.caption(_t("fasta_names_renamed", count=renamed))
 
 
 def stage_results():

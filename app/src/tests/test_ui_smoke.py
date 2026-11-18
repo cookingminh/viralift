@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 from streamlit.testing.v1 import AppTest
 
+import ui.fasta_names
 import ui.reference_library
 import ui.services
 import ui.stages.resolve
@@ -40,6 +41,7 @@ requires_sample_data = pytest.mark.skipif(
 @pytest.fixture(autouse=True)
 def _quiet_side_effects(monkeypatch, tmp_path):
     monkeypatch.setattr(ui.reference_library, "REFERENCE_DIR", tmp_path / "references")
+    monkeypatch.setattr(ui.fasta_names, "SETTINGS_FILE", tmp_path / "export_settings.json")
     for name in ("log_run_start", "log_run_complete", "log_alias_added", "log_canonical_added"):
         monkeypatch.setattr(ui.services, name, lambda *args, **kwargs: None)
     monkeypatch.setattr(ui.stages.resolve, "log_session_decisions", lambda *args, **kwargs: None)
@@ -163,6 +165,26 @@ def test_results_views_render(prrs_run, view):
     at = _app(stage="results", results_view=view, **prrs_run)
     at.run()
     _assert_clean(at)
+
+
+@requires_sample_data
+def test_export_names_sequences_and_remembers_the_choice(prrs_run, tmp_path):
+    at = _app(stage="results", results_view="Export", **prrs_run)
+    at.run()
+    _assert_clean(at)
+    first = next(r for r in prrs_run["query_records"] if any(f.type == "source" for f in r.features))
+    assert at.code[0].value.startswith(f">{first.id}|")          # default: accession|gene|start|end|strand
+
+    at.button(key="fasta_preset_isolate_host").click().run()
+    _assert_clean(at)
+    assert at.code[0].value.split("\n")[0].startswith(f">{first.id}_")
+    saved = json.loads((tmp_path / "export_settings.json").read_text())["fasta_header"]
+    assert saved == {"fields": ["accession", "isolate", "host"], "separator": "_", "missing": "NA"}
+
+    # A new session starts from the saved choice.
+    again = _app(stage="results", results_view="Export", **prrs_run)
+    again.run()
+    assert again.session_state["fasta_name_fields"] == ["accession", "isolate", "host"]
 
 
 @requires_sample_data

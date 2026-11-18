@@ -171,7 +171,9 @@ PAGE_GUIDES: Dict[str, Dict[str, object]] = {
             )),
             ("Export tab", (
                 "TSV with every feature (display or raw source names), and FASTA per gene or combined, "
-                "filtered by status, coverage and identity. Review cases are left out unless you approve them."
+                "filtered by status, coverage and identity. Review cases are left out unless you approve them. "
+                "**Sequence names** builds each FASTA name from fields you pick, e.g. "
+                "`AJ294911.1_O/HKN/21/70_porcine` (Accession_Isolate_Host); the choice is remembered."
             )),
         ],
         "tip": (
