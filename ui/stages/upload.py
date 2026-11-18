@@ -187,6 +187,11 @@ def stage_upload():
             value=st.session_state.lift_missing,
             help=_t("lift_missing_help"),
         )
+        st.session_state.check_annotations = st.toggle(
+            _t("check_annotations"),
+            value=st.session_state.check_annotations,
+            help=_t("check_annotations_help"),
+        )
         with st.expander(_t("lifting_thresholds"), expanded=False):
             st.caption(_t("threshold_caption"))
             c1, c2, c3, c4 = st.columns(4)

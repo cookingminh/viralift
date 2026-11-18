@@ -62,6 +62,10 @@ def _init_state():
         evalue=1e-5,
         rescue_window=200,
         lift_missing=True,      # lift reference genes an annotated record lacks
+        check_annotations=True, # check annotated genes against the reference
+        annotation_choices={},  # {(record, gene): row the user picked instead}
+        manual_lifts={},        # {record: [LiftedFeature]} from "Check with tblastn"
+        annotation_choice_version=0,
         bootstrap_alias_config=None,
         bootstrap_alias_config_path=None,
         bootstrap_suggestions=[],

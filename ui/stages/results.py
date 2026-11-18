@@ -8,12 +8,14 @@
 import dataclasses
 import hashlib
 import html
+from collections import Counter
 import pandas as pd
 import streamlit as st
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 from app.src.io.result_writer import summarize_counts
-from app.src.lifting.base import LiftedFeature
+from app.src.lifting.base import LiftedFeature, PASS_STATUSES
+from app.src.lifting.tblastn_lifter import process_one_query_record
 from ui.components import (
     _card,
     _error_by_record,
@@ -46,6 +48,7 @@ MANUALLY_APPROVABLE_STATUSES = {
     "low_coverage",
     "low_identity",
     "low_coverage_and_identity",
+    "overlong_annotation",
 }
 
 FEATURE_COLUMNS = {
@@ -53,6 +56,7 @@ FEATURE_COLUMNS = {
     "Gene": st.column_config.TextColumn("Gene", help=FEATURE_COLUMN_HELP["Gene"]),
     "Status": _status_column(FEATURE_COLUMN_HELP["Status"]),
     "Method": st.column_config.TextColumn("Method", width="small", help=FEATURE_COLUMN_HELP["Method"]),
+    "Check": st.column_config.TextColumn("Check", width="medium", help=FEATURE_COLUMN_HELP["Check"]),
     "Start": st.column_config.TextColumn("Start", alignment="right", help=FEATURE_COLUMN_HELP["Start"]),
     "End": st.column_config.TextColumn("End", alignment="right", help=FEATURE_COLUMN_HELP["End"]),
     "Length": st.column_config.TextColumn("Length (nt)", alignment="right", help=FEATURE_COLUMN_HELP["Length"]),
@@ -173,23 +177,63 @@ def _method_tag(features: List[LiftedFeature]) -> str:
     return "none"
 
 
-def _display_results(all_results: List[Tuple[str, List[LiftedFeature]]]) -> List[Tuple[str, List[LiftedFeature]]]:
-    """all_results with the `no_hit` genes that lie outside their record shown as
-    not_in_sequence. Cached per run: placing ~100k features takes a moment."""
+Results = List[Tuple[str, List[LiftedFeature]]]
+
+
+def _choice_key(query_id: str, name: str) -> str:
+    return f"{query_id}\x1f{name}"
+
+
+def _chosen_results(all_results: Results) -> Results:
+    """The run's rows with the user's annotation / tblastn choices applied."""
+    choices = st.session_state.get("annotation_choices") or {}
+    if not choices:
+        return all_results
+    return [
+        (query_id, [
+            choices.get(_choice_key(query_id, f.name), f) if f.ref_start is not None else f
+            for f in features
+        ])
+        for query_id, features in all_results
+    ]
+
+
+def _run_views(all_results: Results) -> Tuple[Results, Results]:
+    """(chosen, display): the rows every export uses, and the same rows with the
+    `no_hit` genes that lie outside their record shown as not_in_sequence.
+    Cached per run and choice: placing ~100k features takes a moment."""
+    version = st.session_state.get("annotation_choice_version", 0)
     cached = st.session_state.get("display_results")
-    if cached and cached[0] is all_results:
-        return cached[1]
+    if cached and cached[0] is all_results and cached[1] == version:
+        return cached[2], cached[3]
+    chosen = _chosen_results(all_results)
     lengths = {record.id: len(record.seq) for record in st.session_state.query_records or []}
     ref_strands = {f["name"]: f.get("strand", "+") for f in st.session_state.ref_features or []}
     display = []
-    for query_id, features in all_results:
+    for query_id, features in chosen:
         outside = set(missing_genes_outside_record(features, lengths.get(query_id, 0), ref_strands))
         display.append((query_id, [
             dataclasses.replace(f, status=NOT_IN_SEQUENCE) if index in outside else f
             for index, f in enumerate(features)
         ]))
-    st.session_state.display_results = (all_results, display)
-    return display
+    st.session_state.display_results = (all_results, version, chosen, display)
+    return chosen, display
+
+
+def _display_results(all_results: Results) -> Results:
+    return _run_views(all_results)[1]
+
+
+def _check_cell(lf: LiftedFeature) -> str:
+    """The annotation check's verdict on a gene taken from the record's annotation."""
+    if not lf.annotation_check:
+        return ""
+    label = _t(f"check_{lf.annotation_check}")
+    if lf.best_match:
+        label = _t("check_looks_like", verdict=label, gene=lf.best_match)
+    if lf.annotation is not None:
+        label = _t("check_replaced", verdict=label)
+    return label
 
 
 def _method_label(method: Optional[str]) -> str:
@@ -222,6 +266,7 @@ def _feature_frame(rows: List[FeatureRow]) -> pd.DataFrame:
                 "Gene": gene,
                 "Status": _status_cell(lf.status),
                 "Method": _method_label(lf.method),
+                "Check": _check_cell(lf),
                 "Start": _position_cell(lf.query_start),
                 "End": _position_cell(lf.query_end),
                 "Length": _position_cell(_feature_length(lf)),
@@ -293,7 +338,130 @@ def _render_feature_detail(query_id: str, lf: LiftedFeature, gene: str) -> None:
     explain = f"<div class='vl-explain'>{html.escape(_t(explain_key))}</div>" if explain_key else ""
     sequence = _sequence_html(lf.sequence) if lf.sequence else ""
     with _card("feature_detail"):
-        st.html(head + _kv_html(items) + explain + sequence)
+        st.html(head + _kv_html(items) + explain)
+        _render_annotation_check(query_id, lf, gene)
+        if sequence:
+            st.html(sequence)
+
+
+def _span_length(feature: LiftedFeature) -> str:
+    length = _feature_length(feature)
+    return f"{length:,}" if length is not None else "—"
+
+
+def _set_choice(query_id: str, name: str, row: Optional[LiftedFeature]) -> None:
+    """Use `row` for this gene from now on; None goes back to the run's own row."""
+    choices = dict(st.session_state.get("annotation_choices") or {})
+    if row is None:
+        choices.pop(_choice_key(query_id, name), None)
+    else:
+        choices[_choice_key(query_id, name)] = row
+    st.session_state.annotation_choices = choices
+    st.session_state.annotation_choice_version = st.session_state.get("annotation_choice_version", 0) + 1
+
+
+def _run_row(query_id: str, name: str) -> Optional[LiftedFeature]:
+    """The pipeline's own row for this gene, before any choice."""
+    for record_id, features in st.session_state.all_results or []:
+        if record_id == query_id:
+            return next((f for f in features if f.name == name and f.ref_start is not None), None)
+    return None
+
+
+def _manual_lift(query_id: str) -> List[LiftedFeature]:
+    """tblastn over the whole record, as the pipeline would lift it (cached)."""
+    lifts = st.session_state.manual_lifts
+    if query_id not in lifts:
+        record = next(r for r in st.session_state.query_records if r.id == query_id)
+        lifts[query_id] = process_one_query_record(
+            ref_record=st.session_state.ref_record,
+            query_record=record,
+            ref_cds=st.session_state.ref_features,
+            ref_feature_type=st.session_state.ref_feature_type,
+            min_coverage=st.session_state.min_coverage,
+            min_identity=st.session_state.min_identity,
+            evalue=st.session_state.evalue,
+            rescue_window=st.session_state.rescue_window,
+            quiet=True,
+        )
+    return lifts[query_id]
+
+
+def _render_annotation_check(query_id: str, lf: LiftedFeature, gene: str) -> None:
+    """Annotation vs tblastn for a gene taken from the record's annotation, with
+    the switch between them."""
+    annotated = lf.annotation if lf.annotation is not None else lf
+    if annotated.method != "direct" or annotated.ref_start is None or lf.status == NOT_IN_SEQUENCE:
+        return
+    lines = []
+    if annotated.annotation_check:
+        lines.append(_t(
+            "check_annotation_line",
+            start=f"{annotated.query_start:,}",
+            end=f"{annotated.query_end:,}",
+            length=_span_length(annotated),
+            ref_length=f"{annotated.ref_end - annotated.ref_start + 1:,}",
+            coverage=_format_fraction_percent(annotated.coverage),
+            identity=_format_percent(annotated.identity),
+        ))
+        if annotated.best_match:
+            lines.append(_t("check_best_match", gene=annotated.best_match, name=gene))
+
+    run_row = _run_row(query_id, lf.name)
+    action: Optional[Tuple[str, Optional[LiftedFeature]]] = None  # (label, row to use)
+    check_button = False
+    if lf.annotation is not None:
+        lines.append(_t("check_using_tblastn", start=f"{lf.query_start:,}", end=f"{lf.query_end:,}", length=_span_length(lf)))
+        back = None if run_row is not None and run_row.annotation is None else lf.annotation
+        action = (_t("use_annotation"), back)
+    elif run_row is not None and run_row.annotation is not None:
+        lines.append(_t(
+            "check_using_annotation", gene=gene, start=f"{run_row.query_start:,}",
+            end=f"{run_row.query_end:,}", length=_span_length(run_row), status=run_row.status,
+        ))
+        action = (_t("use_tblastn"), None)
+    elif query_id in st.session_state.manual_lifts:
+        alternative = next((f for f in _manual_lift(query_id) if f.name == lf.name), None)
+        if alternative is None or alternative.status not in PASS_STATUSES or alternative.query_start is None:
+            lines.append(_t("check_tblastn_none", gene=gene, status=alternative.status if alternative else "no_hit"))
+        elif (alternative.query_start, alternative.query_end) == (lf.query_start, lf.query_end):
+            lines.append(_t("check_tblastn_same", gene=gene, status=alternative.status))
+        else:
+            lines.append(_t(
+                "check_using_annotation", gene=gene, start=f"{alternative.query_start:,}",
+                end=f"{alternative.query_end:,}", length=_span_length(alternative), status=alternative.status,
+            ))
+            action = (_t("use_tblastn"), dataclasses.replace(
+                alternative,
+                source_name=lf.source_name,
+                annotation_check=lf.annotation_check,
+                best_match=lf.best_match,
+                annotation=lf,
+            ))
+    else:
+        check_button = True
+
+    verdict = _check_cell(lf)
+    st.html(
+        "<div class='vl-explain'>"
+        f"<b>{html.escape(_t('check_section'))}</b>"
+        + (f" · {html.escape(verdict)}" if verdict else "")
+        + "".join(f"<br>{html.escape(line)}" for line in lines)
+        + "</div>"
+    )
+    if action:
+        label, row = action
+        st.button(
+            label, key=f"check_choice_{query_id}_{lf.name}", icon=":material/swap_horiz:",
+            on_click=_set_choice, args=(query_id, lf.name, row),
+        )
+    elif check_button and st.button(
+        _t("check_with_tblastn"), key=f"check_tblastn_{query_id}_{lf.name}",
+        icon=":material/manage_search:", help=_t("check_with_tblastn_help"),
+    ):
+        with st.spinner(_t("checking_tblastn", record=query_id)):
+            _manual_lift(query_id)
+        st.rerun()
 
 
 def _filter_signature(*parts: object) -> str:
@@ -402,7 +570,7 @@ def _render_features_view(rows: List[FeatureRow]) -> None:
             height=_table_height(len(visible)),
             on_select="rerun",
             selection_mode="single-row",
-            key=f"results_features_{_filter_signature(show, method, tuple(genes), search)}",
+            key=f"results_features_{_filter_signature(show, method, tuple(genes), search, st.session_state.get('annotation_choice_version', 0))}",
         )
         selected = _selected_dataframe_rows(event)
         if selected and selected[0] < len(visible):
@@ -700,9 +868,30 @@ def _render_export_view(
                 st.caption(_t("skipped", count=skipped))
 
 
+def _render_check_banner(rows: List[FeatureRow]) -> None:
+    checked = [lf for _, lf, _ in rows if lf.annotation_check]
+    if not checked:
+        return
+    counts = Counter(lf.annotation_check for lf in checked)
+    issues = "".join(
+        f" · {_t('annotation_check_issue', count=f'{counts[v]:,}', label=_t(f'check_{v}').lower())}"
+        for v in ("partial", "fragment", "low_identity", "overlong") if counts[v]
+    )
+    replaced = sum(1 for lf in checked if lf.annotation is not None)
+    _render_callout(
+        _t(
+            "annotation_check_banner",
+            confirmed=f"{counts['confirmed']:,}",
+            checked=f"{len(checked):,}",
+            issues=html.escape(issues),
+            replaced=_t("annotation_check_replaced", count=f"{replaced:,}") if replaced else "",
+        ),
+        tone="info",
+    )
+
+
 def stage_results():
-    all_results = st.session_state.all_results
-    display_results = _display_results(all_results)
+    all_results, display_results = _run_views(st.session_state.all_results)
     summary     = summarize_counts(display_results)
     run_errors  = st.session_state.run_errors or []
     error_map   = _error_by_record(run_errors)
@@ -784,6 +973,7 @@ def stage_results():
         },
     ])
     _render_status_bar(summary)
+    _render_check_banner(rows)
     if partial_records:
         _render_callout(
             _t(

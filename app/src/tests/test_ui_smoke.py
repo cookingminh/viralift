@@ -6,6 +6,7 @@ tests use the git-ignored sample genomes in app/data/ and tblastn; they skip
 when either is missing. Logging is stubbed, alias edits go to a temporary copy
 and saved references to tmp_path, so the tests never touch logs/ or app/config/.
 """
+import dataclasses
 import json
 import shutil
 from pathlib import Path
@@ -97,30 +98,99 @@ def test_setup_step_renders_with_continue_disabled():
     assert continue_button.disabled
 
 
-def test_setup_lifts_missing_genes_by_default():
+@pytest.mark.parametrize("label, key", [
+    ("Lift genes the annotation is missing", "lift_missing"),
+    ("Check annotations against the reference", "check_annotations"),
+])
+def test_setup_options_are_on_by_default(label, key):
     at = _app()
     at.run()
-    toggle = next(t for t in at.toggle if t.label == "Lift genes the annotation is missing")
+    toggle = next(t for t in at.toggle if t.label == label)
     assert toggle.value is True
     toggle.set_value(False).run()
     _assert_clean(at)
-    assert at.session_state["lift_missing"] is False
+    assert at.session_state[key] is False
 
 
 @requires_sample_data
-@pytest.mark.parametrize("lift_missing", [True, False])
-def test_run_uses_the_lift_missing_choice(prrs_run, monkeypatch, lift_missing):
+@pytest.mark.parametrize("choice", [True, False])
+def test_run_uses_the_setup_choices(prrs_run, monkeypatch, choice):
     seen = []
 
     def fake_run_pipeline(**kwargs):
-        seen.append(kwargs["config"].lift_missing)
+        seen.append((kwargs["config"].lift_missing, kwargs["config"].check_annotations))
         return PipelineRunResult(all_results=prrs_run["all_results"])
 
     monkeypatch.setattr(ui.services, "run_pipeline", fake_run_pipeline)
-    at = _app(**prrs_run, stage="running", lift_missing=lift_missing)
+    at = _app(**prrs_run, stage="running", lift_missing=choice, check_annotations=choice)
     at.run()
     _assert_clean(at)
-    assert seen == [lift_missing]
+    assert seen == [(choice, choice)]
+
+
+def _replaced(prrs_run):
+    """prrs_run with its first annotated gene replaced by a tblastn row, as the
+    annotation check does for an annotation longer than the gene."""
+    record_id, features = next((rid, fs) for rid, fs in prrs_run["all_results"] if fs and fs[0].method == "direct")
+    annotated = dataclasses.replace(features[0], status="overlong_annotation", annotation_check="overlong")
+    lifted = dataclasses.replace(
+        features[0], method="tblastn", query_end=features[0].query_end - 30, annotation_check="overlong",
+        annotation=annotated,
+    )
+    all_results = [
+        (rid, [lifted, *fs[1:]] if rid == record_id else fs) for rid, fs in prrs_run["all_results"]
+    ]
+    return {**prrs_run, "all_results": all_results}, record_id, lifted
+
+
+@requires_sample_data
+@pytest.mark.parametrize("view", ["Features", "Records", "Export"])
+def test_results_show_the_annotation_check(prrs_run, view):
+    state, _, _ = _replaced(prrs_run)
+    at = _app(stage="results", results_view=view, **state)
+    at.run()
+    _assert_clean(at)
+    assert any("Annotation check" in block.proto.body for block in at.get("html"))
+
+
+def _detail_script():
+    import streamlit as st
+    from ui.stages.results import _render_feature_detail
+    from ui.state import _init_state
+
+    _init_state()
+    _render_feature_detail(st.session_state.detail_record, st.session_state.detail_row, st.session_state.detail_row.name)
+
+
+@requires_sample_data
+def test_detail_panel_switches_between_annotation_and_tblastn(prrs_run):
+    state, record_id, lifted = _replaced(prrs_run)
+    at = AppTest.from_function(_detail_script, default_timeout=180)
+    for key, value in {**state, "detail_record": record_id, "detail_row": lifted}.items():
+        at.session_state[key] = value
+    at.run()
+    _assert_clean(at)
+    at.button(key=f"check_choice_{record_id}_{lifted.name}").click().run()
+    choice = at.session_state["annotation_choices"][f"{record_id}\x1f{lifted.name}"]
+    assert choice == lifted.annotation
+
+    # Shown the annotation now, the panel offers tblastn back, which clears the choice.
+    at.session_state["detail_row"] = choice
+    at.run()
+    at.button(key=f"check_choice_{record_id}_{lifted.name}").click().run()
+    assert at.session_state["annotation_choices"] == {}
+
+
+@requires_sample_data
+def test_detail_panel_checks_an_annotated_gene_with_tblastn(prrs_run):
+    record_id, features = next((rid, fs) for rid, fs in prrs_run["all_results"] if fs and fs[0].method == "direct")
+    at = AppTest.from_function(_detail_script, default_timeout=180)
+    for key, value in {**prrs_run, "detail_record": record_id, "detail_row": features[0]}.items():
+        at.session_state[key] = value
+    at.run()
+    at.button(key=f"check_tblastn_{record_id}_{features[0].name}").click().run()
+    _assert_clean(at)
+    assert record_id in at.session_state["manual_lifts"]
 
 
 @pytest.mark.parametrize("mode", ["Data crawler", "Alias manager"])

@@ -332,8 +332,17 @@ def _results_to_df(all_results, ref_name_map: Dict[str, str] = None) -> pd.DataF
                 "identity":   lf.identity,
                 "method":     lf.method,
                 "sequence":   lf.sequence or "",
+                # Annotation check: the verdict on the record's own annotation and,
+                # when tblastn replaced it, where the annotation was.
+                "annotation_check": lf.annotation_check or "",
+                "best_match": lf.best_match or "",
+                "annotation_start": lf.annotation.query_start if lf.annotation else None,
+                "annotation_end": lf.annotation.query_end if lf.annotation else None,
             })
-    return pd.DataFrame(rows)
+    frame = pd.DataFrame(rows)
+    if frame.empty or not frame["annotation_check"].astype(bool).any():
+        frame = frame.drop(columns=["annotation_check", "best_match", "annotation_start", "annotation_end"], errors="ignore")
+    return frame
 
 
 def _run_pipeline(
@@ -341,6 +350,7 @@ def _run_pipeline(
     effective_lookup, min_coverage, min_identity, evalue, rescue_window,
     progress_bar,
     lift_missing: bool = True,
+    check_annotations: bool = True,
     virus_name: Optional[str] = None,
     alias_config_path=None,
     run_errors: Optional[List[Dict[str, str]]] = None,
@@ -382,6 +392,7 @@ def _run_pipeline(
             rescue_window=rescue_window,
             catch_record_errors=True,
             lift_missing=lift_missing,
+            check_annotations=check_annotations,
         ),
         progress_callback=update_progress,
     )
