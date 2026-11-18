@@ -56,11 +56,16 @@ def stage_running():
         rescue_window     = st.session_state.rescue_window,
         progress_bar      = progress,
         lift_missing      = st.session_state.lift_missing,
+        check_annotations = st.session_state.check_annotations,
         virus_name        = st.session_state.virus_name,
         alias_config_path = st.session_state.alias_config_path,
         run_errors        = st.session_state.run_errors,
     )
 
     st.session_state.all_results = all_results
+    # Choices made on an earlier run's rows do not carry over.
+    st.session_state.annotation_choices = {}
+    st.session_state.manual_lifts = {}
+    st.session_state.annotation_choice_version += 1
     st.session_state.stage       = "results"
     st.rerun()

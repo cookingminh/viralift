@@ -12,6 +12,7 @@ from ui.guide import (
     _rich,
     _status_reference_html,
 )
+from ui.ui_text import UI_TEXT
 from ui.stages.results import FEATURE_COLUMNS, RECORD_COLUMNS, _identity_cell, _position_cell
 
 
@@ -21,6 +22,11 @@ def test_every_status_is_explained():
     html = _status_reference_html()
     for status in GUIDE_STATUSES:
         assert _rich(STATUS_GUIDE[status]) in html
+
+
+def test_every_status_has_a_label():
+    # A missing text key renders as its raw name, e.g. "status_overlong_annotation".
+    assert [s for s in GUIDE_STATUSES if f"status_{s}" not in UI_TEXT["en"]] == []
 
 
 def test_every_page_has_a_guide():

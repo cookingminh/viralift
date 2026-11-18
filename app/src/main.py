@@ -73,6 +73,10 @@ def parse_args() -> argparse.Namespace:
                              "does not name (e.g. a genome annotated only as P1/P2/P3\n"
                              "precursors, or missing short peptides such as 2A/3B).\n"
                              "Off by default; the annotated rows are never changed.")
+    parser.add_argument("--check-annotations", action="store_true",
+                        help="Check each annotated gene against the reference protein\n"
+                             "(coverage, identity, annotation longer than the gene) and\n"
+                             "use tblastn where the annotation fails. Off by default.")
     parser.add_argument("--quiet", action="store_true",
                         help="Reduce console output.")
     return parser.parse_args()
@@ -144,6 +148,7 @@ def main() -> None:
             evalue=args.evalue,
             rescue_window=args.rescue_window,
             lift_missing=args.lift_missing,
+            check_annotations=args.check_annotations,
         ),
         progress_callback=update_progress,
     )
@@ -154,8 +159,11 @@ def main() -> None:
     print("\nRun summary")
     print(f"  Query records processed : {len(query_records)}")
     print(f"    Direct (annotated)    : {run_result.direct_count}")
-    if args.lift_missing:
-        print(f"      + missing genes lifted: {run_result.missing_lifted_count}")
+    if args.lift_missing or args.check_annotations:
+        print(f"      + also lifted       : {run_result.missing_lifted_count}")
+    if args.check_annotations:
+        print(f"    Annotations checked   : {run_result.annotations_checked}"
+              f" ({run_result.annotations_replaced} replaced by tblastn)")
     print(f"    Lifted (tblastn)      : {run_result.lifted_count}")
     for status, count in run_result.summary.items():
         label = STATUS_LABELS.get(status, status)

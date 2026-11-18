@@ -56,7 +56,7 @@ UI_TEXT = {
             "- Supported extensions: `.gb` and `.gbk`.\n"
             "- The alias config is auto-detected from `app/config/virus_alias_registry.json`."
         ),
-        "lifting_thresholds": "Lifting thresholds (tblastn only)",
+        "lifting_thresholds": "Thresholds (tblastn and annotation check)",
         "threshold_caption": "Defaults are permissive for divergent viral genomes. Tighten them for higher-confidence extraction.",
         "min_coverage": "Min coverage",
         "min_identity": "Min identity",
@@ -69,6 +69,15 @@ UI_TEXT = {
             "those genes are lifted with tblastn. The annotated genes are kept exactly as they are, "
             "and genes that lie outside a partial record are not searched.\n\n"
             "OFF: annotated records return only the genes they name (the CLI default)."
+        ),
+        "check_annotations": "Check annotations against the reference",
+        "check_annotations_help": (
+            "ON (default): every annotated gene is translated and aligned to the reference protein of "
+            "the same name, so its coverage and identity are real (a 69 nt \"VP1\" fragment gets 11%, "
+            "not 100%). A gene that is partial, too divergent or longer than the gene is searched with "
+            "tblastn, which replaces it when it places the gene differently; the annotation stays "
+            "visible and you can switch back.\n\n"
+            "OFF: annotated genes are taken as they are (coverage 100%), as in the CLI by default."
         ),
         "use_ref_names": "Output the reference's own gene names",
         "use_ref_names_help": (
@@ -178,6 +187,35 @@ UI_TEXT = {
             "review; the gene is left out of the pass rate."
         ),
         "nothing_to_review": "nothing to review",
+        # ── annotation check ─────────────────────────────────────────
+        "check_confirmed": "Matches reference",
+        "check_partial": "Partial",
+        "check_fragment": "Fragment",
+        "check_low_identity": "Low identity",
+        "check_overlong": "Longer than gene",
+        "check_replaced": "{verdict} → tblastn",
+        "check_looks_like": "{verdict} · looks like {gene}",
+        "annotation_check_banner": (
+            "<b>Annotation check</b>: {confirmed} of {checked} annotated genes match the reference"
+            "{issues}.{replaced} Tick a gene to compare its annotation with tblastn."
+        ),
+        "annotation_check_issue": "{count} {label}",
+        "annotation_check_replaced": " For {count} of them tblastn's more exact placement is used.",
+        "check_section": "Annotation check",
+        "check_annotation_line": (
+            "Annotation {start}–{end} ({length} nt, reference {ref_length} nt): "
+            "{coverage} of the reference protein at {identity} identity."
+        ),
+        "check_best_match": "The annotated sequence matches reference {gene} far better than {name}.",
+        "check_using_tblastn": "Using tblastn {start}–{end} ({length} nt) instead of the annotation.",
+        "check_using_annotation": "Using the annotation. tblastn places {gene} at {start}–{end} ({length} nt, {status}).",
+        "check_tblastn_same": "tblastn places {gene} at the same position ({status}).",
+        "check_tblastn_none": "tblastn found no better placement for {gene} ({status}).",
+        "use_annotation": "Use the annotation",
+        "use_tblastn": "Use tblastn",
+        "check_with_tblastn": "Check with tblastn",
+        "check_with_tblastn_help": "Search the whole record with the reference protein and compare.",
+        "checking_tblastn": "Searching {record} with tblastn…",
         "processing_error": "{count} query record(s) failed during processing. They are excluded from the pass rate and listed below.",
         "processing_errors": "Processing errors",
         "view_features": "Features",
@@ -283,5 +321,6 @@ UI_TEXT = {
         "status_ambiguous_name": "Excluded name",
         "status_not_in_reference": "Not in reference",
         "status_not_in_sequence": "Not in sequence",
+        "status_overlong_annotation": "Longer than gene",
     },
 }

@@ -22,6 +22,9 @@ TBLASTN_STATUSES = (
 DIRECT_STATUSES = (
     "unresolved_name",
     "not_in_reference",
+    # Annotation check (annotation_check.py); low coverage / identity reuse the
+    # lifted genes' statuses.
+    "overlong_annotation",
 )
 
 # Ordered list of all statuses, deduplicated while preserving order.
@@ -43,6 +46,7 @@ STATUS_META = {
     "translation_fail": {"label": "Translation fail", "category": "review", "is_pass": False},
     "unresolved_name": {"label": "Unresolved names", "category": "review", "is_pass": False},
     "not_in_reference": {"label": "Not in reference", "category": "pass", "is_pass": True},
+    "overlong_annotation": {"label": "Annotation longer than gene", "category": "review", "is_pass": False},
 }
 
 STATUS_LABELS = {
@@ -95,6 +99,14 @@ class LiftedFeature:
     # Extra engine-specific info
     identity: Optional[float] = None     # tblastn: % identity of best HSP
     score: Optional[float] = None        # tblastn: bit score
+
+    # Annotation check (annotation_check.py), on genes taken from a record's
+    # own annotation: the verdict, a reference gene the annotated sequence
+    # matches far better than its own, and, on a tblastn row that replaced a
+    # failing annotation, that annotated row.
+    annotation_check: Optional[str] = None
+    best_match: Optional[str] = None
+    annotation: Optional["LiftedFeature"] = None
 
     def to_dict(self) -> dict:
         return {

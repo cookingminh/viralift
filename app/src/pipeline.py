@@ -7,9 +7,10 @@ from app.src.features.annotation_strategy import get_strategy, reference_levels
 from app.src.features.direct_extractor import direct_extract_with_alias
 from app.src.io.result_writer import summarize_counts
 from app.src.io.run_logger import log_error
+from app.src.lifting.annotation_check import check_annotations, reference_proteins
 from app.src.lifting.base import LiftedFeature
 from app.src.lifting.missing_genes import add_missing_genes
-from app.src.lifting.tblastn_lifter import process_one_query_record
+from app.src.lifting.tblastn_lifter import process_one_query_record, translate_feature
 
 
 ProgressCallback = Callable[[int, int, str], None]
@@ -26,6 +27,10 @@ class PipelineConfig:
     # name (app/src/lifting/missing_genes.py). Off by default so the CLI output
     # stays as validated; the UI turns it on.
     lift_missing: bool = False
+    # Check each annotated gene against the reference protein, and use tblastn
+    # where the annotation fails (app/src/lifting/annotation_check.py). Off by
+    # default for the same reason; the UI turns it on.
+    check_annotations: bool = False
 
 
 @dataclass
@@ -35,7 +40,26 @@ class PipelineRunResult:
     direct_count: int = 0
     lifted_count: int = 0
     missing_lifted_count: int = 0    # annotated records that were also lifted
+    annotations_checked: int = 0     # annotated genes checked against the reference
+    annotations_replaced: int = 0    # ... of which tblastn replaced
     errors: List[Dict[str, str]] = field(default_factory=list)
+
+
+class _once:
+    """Run a record's tblastn lift at most once, whoever asks first."""
+
+    def __init__(self, lift: Callable[[], List[LiftedFeature]]):
+        self._lift = lift
+        self._rows: Optional[List[LiftedFeature]] = None
+
+    def __call__(self) -> List[LiftedFeature]:
+        if self._rows is None:
+            self._rows = self._lift()
+        return self._rows
+
+    @property
+    def ran(self) -> bool:
+        return self._rows is not None
 
 
 def run_pipeline(
@@ -55,6 +79,10 @@ def run_pipeline(
     """
     cfg = config or PipelineConfig()
     result = PipelineRunResult()
+    proteins = (
+        reference_proteins(ref_features, lambda feature: translate_feature(feature, ref_record))
+        if cfg.check_annotations else {}
+    )
     total = len(query_records)
 
     for index, query_record in enumerate(query_records, start=1):
@@ -72,6 +100,7 @@ def run_pipeline(
             allowed_types=reference_levels(ref_feature_type),
         )
 
+        @_once
         def lift() -> List[LiftedFeature]:
             return process_one_query_record(
                 ref_record=ref_record,
@@ -97,11 +126,18 @@ def run_pipeline(
                     alias_lookup=alias_lookup,
                 )
                 result.direct_count += 1
+                if cfg.check_annotations:
+                    features = check_annotations(
+                        features, ref_features, proteins, lift, cfg.min_coverage, cfg.min_identity,
+                        len(query_record.seq),
+                    )
+                    result.annotations_checked += sum(1 for f in features if f.annotation_check)
+                    result.annotations_replaced += sum(1 for f in features if f.annotation is not None)
                 if cfg.lift_missing:
-                    features, lifted = add_missing_genes(
+                    features, _ = add_missing_genes(
                         features, ref_features, len(query_record.seq), lift,
                     )
-                    result.missing_lifted_count += lifted
+                result.missing_lifted_count += lift.ran
             else:
                 features = lift()
                 result.lifted_count += 1

@@ -47,10 +47,17 @@ PAGE_GUIDES: Dict[str, Dict[str, object]] = {
                 "tblastn. Its annotated genes stay exactly as they are; such a record shows "
                 "**Direct + tblastn** in the Records table. Off: annotated records return only the genes they name."
             )),
+            ("Check annotations against the reference", (
+                "On (default): every annotated gene is aligned to the reference protein of the same "
+                "name, so a fragment, a gene with the wrong name or an annotation longer than the gene "
+                "is caught, and tblastn's placement is used where it does better. Off: annotated genes "
+                "are taken as they are."
+            )),
             ("Change thresholds only if needed", (
                 "**Min coverage** and **Min identity** decide when a tblastn hit is accepted, "
                 "**E-value** drops weak hits, and **Rescue window** is how far (bp) a start or stop "
-                "codon may move to repair a boundary. They do not affect genes taken from the annotation."
+                "codon may move to repair a boundary. Min coverage and Min identity also apply to the "
+                "annotation check."
             )),
             ("Continue", (
                 "ViraLift reads both files and detects the virus from the reference metadata. "
@@ -160,6 +167,12 @@ PAGE_GUIDES: Dict[str, Dict[str, object]] = {
                 "they are left out of the pass rate. A **No hit** inside the record is a real miss."
             )),
             ("Status bar", "The share of each status across all features. The colours match the table."),
+            ("Annotation check", (
+                "How many annotated genes match the reference, and how many were partial, fragments, "
+                "too divergent or longer than the gene. The **Check** column shows it per gene; tick a "
+                "gene to compare the annotation with tblastn and choose which to use, or run **Check "
+                "with tblastn** on any annotated gene."
+            )),
             ("Features tab", (
                 "One row per gene in each query record. Filter by status, method or gene, or search. "
                 "Tick a row to see coordinates, boundary checks and the sequence."
@@ -248,8 +261,10 @@ STAGE_TOPICS = {
 METHOD_GUIDE = [
     ("Direct", "The record is already annotated", (
         "Its CDS or mat_peptide names are matched against the alias config and renamed to canonical "
-        "names. Coordinates stay exactly as annotated. Reference genes the annotation does not name "
-        "are lifted with tblastn (Setup option **Lift genes the annotation is missing**, on by default)."
+        "names. Coordinates stay exactly as annotated. Each annotated gene is also aligned to its "
+        "reference protein (**Check annotations against the reference**), and one that fails is "
+        "searched with tblastn. Reference genes the annotation does not name are lifted with tblastn "
+        "(**Lift genes the annotation is missing**). Both options are on by default."
     )),
     ("tblastn", "The record has no usable annotation", (
         "Each reference protein is searched in the genome. The best hits are merged, checked for a "
@@ -286,11 +301,22 @@ STATUS_GUIDE = {
     "invalid_boundaries": (
         "Strong protein match, but the CDS fails the start, stop or frame check and could not be repaired."
     ),
-    "low_coverage": "The alignment covers less of the reference protein than Min coverage.",
-    "low_identity": "The alignment's amino-acid identity is below Min identity.",
+    "low_coverage": (
+        "The alignment covers less of the reference protein than Min coverage. For an annotated gene "
+        "the annotation check found it partial, e.g. a 69 nt \"VP1\" fragment of a short record."
+    ),
+    "low_identity": (
+        "The alignment's amino-acid identity is below Min identity. For an annotated gene this often "
+        "means the wrong name: the detail panel names the reference gene it really matches."
+    ),
     "low_coverage_and_identity": "Both coverage and identity are below their thresholds.",
     "no_hit": "tblastn found no significant match for this reference protein.",
     "translation_fail": "The reference feature could not be translated into a protein, so it was not searched.",
+    "overlong_annotation": (
+        "Annotation check: the annotated gene is clearly longer than the reference gene, e.g. a "
+        "\"VP1\" of 1,032 nt that also holds VP3's tail and 2A. When tblastn places the gene, its "
+        "row is used instead; this status means it could not, so the annotation is kept for review."
+    ),
     "unresolved_name": (
         "Direct: the annotated name is not in the alias config and was not mapped, so it keeps its raw name."
     ),
@@ -304,12 +330,17 @@ TERMS = [
     ("Canonical name", "The standard gene name ViraLift writes to the output, e.g. `ORF5`."),
     ("Alias", "Another name for the same gene, e.g. `GP5`. Aliases live in the virus's alias config."),
     ("Raw name", "The gene name exactly as written in the query record's annotation."),
-    ("Coverage", "Share of the reference protein covered by the tblastn alignment."),
+    ("Coverage", "Share of the reference protein covered by the alignment: tblastn's, or the annotation check's."),
     ("Identity", "Percentage of identical amino acids in that alignment."),
     ("E-value", "How likely a hit this good is by chance. Lower is stricter."),
     ("Bit score", "Alignment strength reported by tblastn. Higher is better."),
     ("Rescue", "Moving a start or stop codon so the CDS has valid boundaries."),
     ("Partial record", "A query record that covers only part of the reference genome, e.g. one gene."),
+    ("Annotation check", (
+        "Each annotated gene is translated and aligned to its reference protein. A gene that fails "
+        "is searched with tblastn, which replaces it when it places the gene differently; the "
+        "annotation stays in the detail panel and you can switch back."
+    )),
 ]
 
 # Shared by the table tooltips (column help) and the "How to read" popovers.
@@ -322,8 +353,15 @@ FEATURE_COLUMN_HELP = {
     "End": "Last base. Start is the lower number on both strands.",
     "Length": "End − Start + 1, in nucleotides.",
     "Strand": "+ forward, − reverse complement.",
-    "Coverage": "Share of the reference protein the alignment covers. Direct: 100%.",
-    "Identity": "Amino-acid identity of the alignment. Blank for direct features.",
+    "Check": (
+        "Annotation check for genes taken from the record's annotation: Matches reference, Partial, "
+        "Fragment, Low identity or Longer than gene; → tblastn when tblastn's placement is used instead."
+    ),
+    "Coverage": (
+        "Share of the reference protein the alignment covers: tblastn's, or for annotated genes the "
+        "annotation check's (100% when the check is off)."
+    ),
+    "Identity": "Amino-acid identity of the alignment. Blank for annotated genes when the check is off.",
     "Raw name": "Name as written in the query annotation. Blank for tblastn features.",
 }
 
