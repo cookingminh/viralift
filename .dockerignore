@@ -21,6 +21,7 @@ logs/
 app/data/
 app/config/backups/
 app/config/references/
+app/config/export_settings.json
 validation/outputs/
 
 # build artifacts and side projects

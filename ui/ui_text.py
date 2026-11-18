@@ -242,6 +242,21 @@ UI_TEXT = {
         "approved_export_count": "{count} reviewed feature(s) approved for FASTA export.",
         "candidate_count": "{count} sequence(s) pass these filters.",
         "generate_fasta": "Generate FASTA",
+        "fasta_names": "Sequence names",
+        "fasta_names_default": "Default",
+        "fasta_names_isolate_host": "Accession_Isolate_Host",
+        "fasta_name_fields": "Name fields, in order",
+        "fasta_name_fields_help": (
+            "Pick the parts of each sequence name in the order they should appear. Isolate falls back "
+            "to the strain, Country reads geo_loc_name; both come from the record's source feature. "
+            "Spaces and characters that break tree files ( ( ) , ; : ) become underscores. Your choice is remembered for the next run."
+        ),
+        "fasta_name_separator": "Separator",
+        "fasta_name_missing": "Missing value",
+        "fasta_name_missing_help": "NA keeps every field in its place; skip leaves an empty field out.",
+        "fasta_name_preview": "First names in {file}:",
+        "fasta_names_add_gene": "Add Gene to the name fields: with all genes in one file, a record's genes would otherwise share a name.",
+        "fasta_names_renamed": "{count} repeated name(s) got a _2, _3 … suffix so every name in a file is unique.",
         "download_all_fasta": "Download all_genes.fasta",
         "no_sequences": "No sequences for `{gene}` passed the filter.",
         "gene_download": "{gene}.fasta · {count}",
