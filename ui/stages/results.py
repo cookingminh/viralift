@@ -32,8 +32,11 @@ from ui.components import (
     _status_badge,
     _status_cell,
     _status_column,
+    _status_label,
+    _status_tone,
 )
 from app.src.lifting.gene_presence import NOT_IN_SEQUENCE, missing_genes_outside_record, nothing_located
+from ui import genome_map
 from ui.fasta_names import FIELDS, MISSING, PRESETS, SEPARATORS, build_header, load_settings, make_unique, record_metadata, save_settings
 from ui.guide import FEATURE_COLUMN_HELP, RECORD_COLUMN_HELP, _open_guide, _render_table_help
 from ui.i18n import _t
@@ -677,6 +680,309 @@ def _render_records_view(
             )
 
 
+# ── genome map ────────────────────────────────────────────────────────────
+# A record x gene matrix under the reference bar, then the selected record drawn
+# under the reference with ribbons from each reference gene to where it landed
+# (ui/genome_map.py). Clicks come back as component events; the handlers only
+# set map_record / map_gene / map_focus, so every panel reads one state.
+
+MAP_MATRIX_KEY = "vl_map_matrix"
+MAP_TRACKS_KEY = "vl_map_tracks"
+MAP_PICKER_KEY = "vl_map_picker"
+MAP_ATTENTION_LIMIT = 8
+MAP_CHECK_LIMIT = 8
+HEALTH_META = {key: (label, RECORD_HEALTH_TONE[key]) for key, label in RECORD_HEALTH_LABELS.items()}
+
+
+def _gene_labeler(ref_name_map: Optional[Dict[str, str]]):
+    return (lambda name: ref_name_map.get(name, name)) if ref_name_map else None
+
+
+def _map_reference(ref_name_map: Optional[Dict[str, str]]) -> Dict:
+    ref = st.session_state.ref_record
+    return genome_map.reference_payload(
+        ref.id, len(ref.seq), st.session_state.ref_features, st.session_state.ref_feature_type,
+        _gene_labeler(ref_name_map),
+    )
+
+
+def _map_feature(features: List[LiftedFeature], gene: Optional[str]) -> Optional[LiftedFeature]:
+    """The row a gene name refers to on one record: its reference gene first."""
+    if not gene:
+        return None
+    named = [f for f in features if f.name == gene]
+    return next((f for f in named if f.ref_start is not None), named[0] if named else None)
+
+
+def _on_matrix_select() -> None:
+    value = genome_map.event_value(MAP_MATRIX_KEY, "select") or {}
+    if value.get("record"):
+        st.session_state.map_record = value["record"]
+        if value.get("gene"):
+            st.session_state.map_gene = value["gene"]
+
+
+def _on_matrix_focus() -> None:
+    gene = genome_map.event_value(MAP_MATRIX_KEY, "focus")
+    st.session_state.map_focus = None if not gene or gene == st.session_state.get("map_focus") else gene
+
+
+def _on_tracks_select() -> None:
+    gene = genome_map.event_value(MAP_TRACKS_KEY, "select")
+    st.session_state.map_gene = None if not gene or gene == st.session_state.get("map_gene") else gene
+
+
+def _export_gene_names() -> List[str]:
+    ref_name_map = _canonical_to_ref_map(st.session_state.ref_features) if st.session_state.use_ref_names else None
+    return sorted({
+        (ref_name_map.get(f.get("name"), f.get("name")) if ref_name_map else f.get("name"))
+        for f in st.session_state.ref_features
+        if f.get("name")
+    })
+
+
+def _on_pick() -> None:
+    name = genome_map.event_value(MAP_PICKER_KEY, "pick")
+    if not name:
+        return
+    if st.session_state.use_ref_names:
+        name = _canonical_to_ref_map(st.session_state.ref_features).get(name, name)
+    chosen = set(st.session_state.get("fasta_genes") or [])
+    chosen ^= {name}
+    st.session_state.fasta_genes = [gene for gene in _export_gene_names() if gene in chosen]
+
+
+def _open_on_map(record_id: str, gene: Optional[str] = None) -> None:
+    st.session_state.map_record = record_id
+    if gene:
+        st.session_state.map_gene = gene
+
+
+def _close_focus() -> None:
+    st.session_state.map_focus = None
+
+
+def _export_one_gene(label: str) -> None:
+    st.session_state.fasta_genes = [label]
+    st.session_state.results_view = _t("view_export")
+
+
+def _step_record(record_ids: List[str], step: int) -> None:
+    current = st.session_state.get("map_record")
+    index = record_ids.index(current) if current in record_ids else -1
+    st.session_state.map_record = record_ids[(index + step) % len(record_ids)]
+
+
+def _jump_to_record() -> None:
+    record_id = st.session_state.get("map_jump")
+    if record_id:
+        st.session_state.map_record = record_id
+    st.session_state.map_jump = None
+
+
+def _render_gene_focus(gene: str, display_results: Results, ref: Dict, label_of) -> None:
+    label = label_of(gene) if label_of else gene
+    ref_gene = next((g for g in ref["genes"] if g[0] == gene), None)
+    placed = [(qid, f) for qid, features in display_results for f in [_map_feature(features, gene)] if f]
+    tones = Counter("absent" if f.status == NOT_IN_SEQUENCE else _status_tone(f.status) for _, f in placed)
+    lengths = sorted(
+        f.query_end - f.query_start + 1 for _, f in placed
+        if f.query_start is not None and f.query_end is not None and f.status in GOOD_STATUSES
+    )
+    exportable = sum(1 for _, f in placed if f.sequence and f.status in GOOD_STATUSES)
+    to_check = [(qid, f) for qid, f in placed if f.status in REVIEW_STATUSES or genome_map.is_much_shorter(f)]
+
+    facts = []
+    if ref_gene:
+        facts.append(_t("map_focus_ref", start=f"{ref_gene[1]:,}", end=f"{ref_gene[2]:,}", length=f"{ref_gene[2] - ref_gene[1] + 1:,}"))
+    if lengths:
+        facts.append(_t("map_focus_median", length=f"{lengths[len(lengths) // 2]:,}"))
+    chips = "".join(
+        f"<span class='vl-badge tone-{'neutral' if tone == 'absent' else tone}'>{html.escape(_t(f'map_tone_{tone}'))} · {tones[tone]:,}</span> "
+        for tone in ("ok", "info", "warn", "danger", "neutral", "absent") if tones[tone]
+    )
+    st.html(
+        "<div class='vl-detail-head'>"
+        f"<span class='vl-detail-title'>{html.escape(label)}</span>"
+        f"<span class='vl-meta'>{html.escape(' · '.join(facts))}</span></div>"
+        f"<div>{chips}</div>"
+    )
+    with st.container(horizontal=True, gap="small"):
+        st.button(
+            _t("map_export_gene", gene=label, count=exportable), key="map_export_gene",
+            icon=":material/download:", on_click=_export_one_gene, args=(label,), disabled=not exportable,
+        )
+        st.button(_t("map_close_focus"), key="map_close_focus", type="tertiary", on_click=_close_focus)
+    if to_check:
+        st.caption(_t("map_focus_check", count=len(to_check)))
+        with st.container(horizontal=True, gap="small"):
+            for qid, f in to_check[:MAP_CHECK_LIMIT]:
+                reason = (
+                    _t("map_share_of_ref", share=_format_fraction_percent(
+                        (f.query_end - f.query_start + 1) / (f.ref_end - f.ref_start + 1)))
+                    if f.status not in REVIEW_STATUSES else _status_label(f.status)
+                )
+                st.button(
+                    f"{qid} · {reason}", key=f"map_check_{qid}", type="secondary",
+                    on_click=_open_on_map, args=(qid, gene),
+                )
+
+
+def _render_map_note(lf: LiftedFeature, length: int) -> None:
+    """What the map shows about this gene that the detail panel does not say."""
+    if not genome_map.is_much_shorter(lf):
+        return
+    share = _format_fraction_percent((lf.query_end - lf.query_start + 1) / (lf.ref_end - lf.ref_start + 1))
+    if lf.query_start == 1 or lf.query_end == length:
+        text = _t("map_short_edge", share=share)
+    else:
+        text = _t("map_short", share=share)
+        if lf.raw_end is not None and lf.raw_end - lf.query_end > genome_map.RAW_HIT_MIN_SHIFT:
+            text += " " + _t("map_short_raw", raw_start=f"{lf.raw_start:,}", raw_end=f"{lf.raw_end:,}", end=f"{lf.query_end:,}")
+    _render_callout(html.escape(text), tone="warn", icon="!")
+
+
+def _render_record_summary(record_id: str, features: List[LiftedFeature], length: int, health: str, ref: Dict, error: Optional[str]) -> None:
+    offset, flipped = genome_map.record_placement(features, genome_map.reference_strands(ref), length)
+    statuses = Counter(f.status for f in features)
+    with _card("map_summary"):
+        st.html(
+            "<div class='vl-detail-head'>"
+            f"<span class='vl-detail-title'>{html.escape(record_id)}</span>"
+            f"<span class='vl-badge tone-{RECORD_HEALTH_TONE[health]}'>{html.escape(RECORD_HEALTH_LABELS[health])}</span>"
+            "</div>"
+            + _kv_html([
+                (_t("map_length"), f"{length:,} bp · reference {ref['length']:,} bp"),
+                (_t("map_shift"), (f"{offset:+,} bp" if any(f.query_start is not None for f in features) else "—")
+                    + (" · " + _t("map_reverse") if flipped else "")),
+                (_t("map_method"), METHOD_TAG_LABELS[_method_tag(features)]),
+            ])
+            + "<div class='vl-chips'>" + "".join(
+                f"<span class='vl-badge tone-{_status_tone(status)}'>{html.escape(_status_label(status))} · {count}</span>"
+                for status, count in statuses.most_common()
+            ) + "</div>"
+        )
+        if error:
+            st.error(error)
+        st.caption(_t("map_pick_gene"))
+
+
+def _render_map_view(display_results: Results, error_map: Dict[str, str], ref_name_map: Optional[Dict[str, str]]) -> None:
+    label_of = _gene_labeler(ref_name_map)
+    ref = _map_reference(ref_name_map)
+    records = {record.id: record for record in st.session_state.query_records or []}
+    features_of = dict(display_results)
+    record_ids = [query_id for query_id, _ in display_results]
+    health = {query_id: _record_health(query_id, features, error_map) for query_id, features in display_results}
+    counts = Counter(health.values())
+
+    with _card("map_overview"):
+        with st.container(horizontal=True, horizontal_alignment="distribute", vertical_alignment="center"):
+            title_slot = st.empty()
+        present = [h for h in RECORD_HEALTH_LABELS if counts[h]]
+        with st.container(horizontal=True, vertical_alignment="center", gap="small"):
+            show = st.segmented_control(
+                _t("health_filter"),
+                ["all"] + present,
+                format_func=lambda h: (
+                    f"{_t('filter_all')} · {len(record_ids):,}" if h == "all" else f"{RECORD_HEALTH_LABELS[h]} · {counts[h]:,}"
+                ),
+                default="all",
+                required=True,
+                key="map_health",
+                label_visibility="collapsed",
+            )
+            search = st.text_input(
+                _t("search_record"),
+                placeholder=_t("search_record"),
+                icon=":material/search:",
+                key="map_search",
+                label_visibility="collapsed",
+            ).strip().lower()
+        visible = [
+            query_id for query_id in record_ids
+            if (show == "all" or health[query_id] == show) and (not search or search in query_id.lower())
+        ]
+        with title_slot:
+            _render_section_title(
+                _t("map_matrix_title"),
+                _t("map_matrix_caption", shown=f"{len(visible):,}", total=f"{len(record_ids):,}"),
+            )
+        if st.session_state.get("map_record") not in features_of:
+            st.session_state.map_record = (visible or record_ids or [None])[0]
+        record_id = st.session_state.map_record
+        if len(visible) > genome_map.MATRIX_ROW_LIMIT:
+            st.caption(_t("map_matrix_limit", limit=f"{genome_map.MATRIX_ROW_LIMIT:,}", total=f"{len(visible):,}"))
+        genome_map.render(
+            genome_map.matrix_payload(
+                ref,
+                [(query_id, features_of[query_id], health[query_id]) for query_id in visible],
+                HEALTH_META,
+                selected=record_id,
+                focus=st.session_state.get("map_focus"),
+            ),
+            MAP_MATRIX_KEY,
+            on_select_change=_on_matrix_select,
+            on_focus_change=_on_matrix_focus,
+        )
+        st.caption(_t("map_matrix_legend"))
+        focus = st.session_state.get("map_focus")
+        if focus and any(g[0] == focus for g in ref["genes"]):
+            _render_gene_focus(focus, display_results, ref, label_of)
+
+    if record_id is None:
+        return
+    features = features_of[record_id]
+    record = records.get(record_id)
+    length = len(record.seq) if record is not None else 0
+    col_map, col_detail = st.columns([2.4, 1], gap="medium")
+    with col_map, _card("map_record"):
+        with st.container(horizontal=True, horizontal_alignment="distribute", vertical_alignment="top"):
+            st.html(
+                f"<div class='vl-section-title vl-mono'>{html.escape(record_id)}</div>"
+                f"<div class='vl-section-caption'>{html.escape(record.description if record is not None else '')}"
+                f" · {length:,} bp · {html.escape(METHOD_TAG_LABELS[_method_tag(features)])} "
+                f"<span class='vl-badge tone-{RECORD_HEALTH_TONE[health[record_id]]}'>"
+                f"{html.escape(RECORD_HEALTH_LABELS[health[record_id]])}</span></div>"
+            )
+            steps = visible if record_id in visible else record_ids
+            with st.container(horizontal=True, width="content", gap="small"):
+                st.button(_t("map_prev"), icon=":material/chevron_left:", key="map_prev",
+                          on_click=_step_record, args=(steps, -1), disabled=len(steps) < 2)
+                st.button(_t("map_next"), icon=":material/chevron_right:", key="map_next",
+                          on_click=_step_record, args=(steps, 1), disabled=len(steps) < 2)
+        attention = [
+            query_id for query_id in record_ids
+            if query_id != record_id and (
+                health[query_id] == "needs_review"
+                or any(genome_map.is_much_shorter(f) for f in features_of[query_id])
+            )
+        ]
+        if attention:
+            st.pills(
+                _t("map_attention", count=len(attention)),
+                attention[:MAP_ATTENTION_LIMIT],
+                key="map_jump",
+                on_change=_jump_to_record,
+            )
+        genome_map.render(
+            genome_map.tracks_payload(
+                ref, record_id, length, features, selected=st.session_state.get("map_gene"), label_of=label_of,
+            ),
+            MAP_TRACKS_KEY,
+            on_select_change=_on_tracks_select,
+        )
+        st.caption(_t("map_tracks_legend"))
+
+    with col_detail:
+        lf = _map_feature(features, st.session_state.get("map_gene"))
+        if lf is None:
+            _render_record_summary(record_id, features, length, health[record_id], ref, error_map.get(record_id))
+        else:
+            _render_map_note(lf, length)
+            _render_feature_detail(record_id, lf, label_of(lf.name) if label_of else lf.name)
+
+
 def _render_approval_editor(rows: List[FeatureRow]) -> None:
     review_candidates = [
         (query_id, lf, gene)
@@ -835,11 +1141,30 @@ def _render_export_view(
             if f.get("name")
         })
 
+        # The picker on the reference and the multiselect share st.session_state.fasta_genes.
+        current = st.session_state.get("fasta_genes")
+        st.session_state.fasta_genes = (
+            list(ref_gene_names) if current is None else [g for g in current if g in ref_gene_names]
+        )
+        label_of = _gene_labeler(ref_name_map)
+        ref = _map_reference(ref_name_map)
+        chosen = set(st.session_state.fasta_genes)
+        exportable = Counter(lf.name for _, lf, _ in rows if lf.sequence and lf.status in GOOD_STATUSES)
+        genome_map.render(
+            genome_map.picker_payload(
+                ref,
+                [gene[0] for gene in ref["genes"] if (label_of(gene[0]) if label_of else gene[0]) in chosen],
+                dict(exportable),
+            ),
+            MAP_PICKER_KEY,
+            on_pick_change=_on_pick,
+        )
+
         col_select, col_format = st.columns([3, 2])
         selected_genes = col_select.multiselect(
             _t("genes_to_extract"),
             options=ref_gene_names,
-            default=ref_gene_names,
+            key="fasta_genes",
         )
         fasta_mode = col_format.segmented_control(
             _t("output_format"),
@@ -1093,18 +1418,21 @@ def stage_results():
         with st.expander(_t("processing_errors"), expanded=True):
             st.dataframe(pd.DataFrame(run_errors), width="stretch", hide_index=True)
 
-    # Stateful tabs: only the open tab's content runs.
-    features_tab, records_tab, export_tab = st.tabs(
-        [_t("view_features"), _t("view_records"), _t("view_export")],
+    # Stateful tabs: only the open tab's content runs. The genome map opens first.
+    map_tab, features_tab, records_tab, export_tab = st.tabs(
+        [_t("view_map"), _t("view_features"), _t("view_records"), _t("view_export")],
         key="results_view",
         on_change="rerun",
     )
-    if records_tab.open:
+    if features_tab.open:
+        with features_tab:
+            _render_features_view(rows)
+    elif records_tab.open:
         with records_tab:
             _render_records_view(display_results, rows, error_map)
     elif export_tab.open:
         with export_tab:
             _render_export_view(rows, df, ref_name_map)
     else:
-        with features_tab:
-            _render_features_view(rows)
+        with map_tab:
+            _render_map_view(display_results, error_map, ref_name_map)

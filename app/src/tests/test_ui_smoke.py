@@ -15,6 +15,7 @@ import pytest
 from streamlit.testing.v1 import AppTest
 
 import ui.fasta_names
+import ui.genome_map
 import ui.reference_library
 import ui.services
 import ui.stages.resolve
@@ -346,3 +347,102 @@ def test_alias_manager_lists_the_virus_references(prrs_run):
     _assert_clean(at)
     page_html = " ".join(element.proto.body for element in at.get("html"))
     assert ref_record.id in page_html and "Default" in page_html
+
+
+# ── genome map ───────────────────────────────────────────────────────────
+
+def _page_html(at: AppTest) -> str:
+    return " ".join(element.proto.body for element in at.get("html"))
+
+
+@requires_sample_data
+def test_results_open_on_the_genome_map(prrs_run):
+    at = _app(stage="results", **prrs_run)
+    at.run()
+    _assert_clean(at)
+    first = prrs_run["all_results"][0][0]
+    assert at.session_state.map_record == first
+    assert "Every record against the reference" in _page_html(at)
+
+
+@requires_sample_data
+def test_genome_map_opens_the_selected_gene(prrs_run):
+    record_id = prrs_run["all_results"][-1][0]
+    at = _app(stage="results", map_record=record_id, map_gene="ORF5", **prrs_run)
+    at.run()
+    _assert_clean(at)
+    assert f"{record_id} · ORF5" in _page_html(at)
+
+
+@requires_sample_data
+def test_gene_focus_exports_that_gene(prrs_run):
+    at = _app(stage="results", map_focus="ORF5", **prrs_run)
+    at.run()
+    _assert_clean(at)
+    at.button(key="map_export_gene").click().run()
+    _assert_clean(at)
+    assert at.session_state.results_view == "Export"
+    assert at.multiselect(key="fasta_genes").value == ["ORF5"]
+
+
+def _map_event_script():
+    import streamlit as st
+    from ui.stages import results
+    from ui.state import _init_state
+
+    _init_state()
+    getattr(results, st.session_state.handler)()
+
+
+@requires_sample_data
+@pytest.mark.parametrize("handler, event, before, after", [
+    ("_on_matrix_select", {"record": "Q.2", "gene": "ORF5"}, {}, {"map_record": "Q.2", "map_gene": "ORF5"}),
+    ("_on_matrix_select", {"record": "Q.2", "gene": None}, {"map_gene": "ORF3"}, {"map_record": "Q.2", "map_gene": "ORF3"}),
+    ("_on_matrix_focus", "ORF5", {}, {"map_focus": "ORF5"}),
+    ("_on_matrix_focus", "ORF5", {"map_focus": "ORF5"}, {"map_focus": None}),  # a second click closes it
+    ("_on_tracks_select", "ORF5", {"map_gene": "ORF3"}, {"map_gene": "ORF5"}),
+    ("_on_tracks_select", "ORF5", {"map_gene": "ORF5"}, {"map_gene": None}),
+    ("_on_pick", "ORF5", {"fasta_genes": ["ORF3", "ORF5"]}, {"fasta_genes": ["ORF3"]}),
+    ("_on_pick", "ORF2a", {"fasta_genes": ["ORF3"]}, {"fasta_genes": ["ORF2a", "ORF3"]}),
+])
+def test_map_events_update_one_shared_selection(prrs_run, monkeypatch, handler, event, before, after):
+    monkeypatch.setattr(ui.genome_map, "event_value", lambda key, name: event)
+    at = AppTest.from_function(_map_event_script, default_timeout=60)
+    for key, value in {**prrs_run, **before, "handler": handler}.items():
+        at.session_state[key] = value
+    at.run()
+    _assert_clean(at)
+    for key, value in after.items():
+        assert at.session_state[key] == value
+
+
+@requires_sample_data
+def test_setup_previews_the_reference_before_the_run(prrs_run):
+    ref_record = prrs_run["ref_record"]
+    ui.reference_library.save_reference(REF_FILE, ref_record, "PRRSV", "CDS", len(prrs_run["ref_features"]))
+    at = _app(crawler_query_path=str(QUERY_FILES[0]))
+    at.run()
+    _assert_clean(at)
+    preview = next(iter(at.session_state["ref_preview_cache"].values()))
+    assert "error" not in preview
+    assert preview["genes"] == len(prrs_run["ref_features"])
+    assert [gene[0] for gene in preview["ref"]["genes"]][:2] == ["ORF1a", "ORF1b"]
+    assert "What this reference will look for" in _page_html(at)
+    assert any("Query: 1 record(s)" in caption.value for caption in at.caption)
+
+
+@requires_sample_data
+def test_review_rows_draw_where_the_name_sits(prrs_run, tmp_path):
+    config_copy = tmp_path / "prrsv_alias.json"
+    shutil.copy(prrs_run["alias_config_path"], config_copy)
+    record_id = prrs_run["query_records"][0].id
+    unknown = {"ORF5a": {"records": [record_id], "candidates": ["ORF5a", "5a"]}}
+    state = {**prrs_run, "alias_config_path": config_copy, "all_results": None}
+    at = _app(stage="resolve", unknown_names=unknown, unknown_ref_names=[], **state)
+    at.run()
+    _assert_clean(at)
+    context = at.session_state["review_context"]
+    assert record_id in context["lifted"]
+    evidence = context["evidence"]["ORF5a"]
+    # ORF5a (13,778-13,933) lies inside ORF5 on the record.
+    assert (evidence["verdict"], evidence["gene"], evidence["start"]) == ("inside", "ORF5", 13778)

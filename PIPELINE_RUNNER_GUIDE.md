@@ -113,6 +113,8 @@ Advanced options are also available here:
 - `rescue_window`
 - `Use ref gene names as output`
 
+Once a reference is chosen, **What this reference will look for** draws its genes on the genome (overlapping CDS split into reading-frame lanes), names the alias config that will name them, and counts how many query records are partial. Check it before running: a wrong reference or feature level shows here.
+
 If the tool recognises the virus, the pipeline continues. If it cannot recognise the virus, the UI moves to the review / new-alias-config stage.
 
 ### 2. Virus review
@@ -141,6 +143,8 @@ The user can:
 - Save the mapping to the alias config so it is recognised automatically next time.
 - Ignore a name if it is too generic or untrustworthy.
 
+Each row draws where the name sits: the reference genes lifted onto one record that carries the name, with the annotated span as a dark bar under them. A span that covers several genes is a precursor; one inside a gene is a sub-part.
+
 ### 5. Run
 
 The tool runs for real on each query record:
@@ -158,8 +162,9 @@ Displays:
 - Total features found.
 - Pass rate.
 - Number of features needing review.
-- A detailed per-record table.
-- TSV/FASTA export.
+- **Genome map** (opens first): one row per record and one column per reference gene, each column linked to its place on the reference bar. Partial records, a gene failing across records, or a passing gene much shorter than the reference (orange corner) stand out at a glance. Click a gene name for that gene in every record and a one-click FASTA export; click a row to draw that record under the reference, with a ribbon from each reference gene to where it landed. Shifts, insertions and cut-short genes show as slanted or narrowing ribbons; a dashed orange bar under the record is the raw tblastn hit before boundary rescue.
+- Feature and record tables.
+- TSV/FASTA export; FASTA genes can be picked by clicking them on the reference bar.
 
 ## How does the tool decide direct vs tblastn?
 

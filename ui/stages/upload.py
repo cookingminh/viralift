@@ -2,10 +2,13 @@
 # configure the run. The query is read first: the virus it is detected as
 # decides which saved reference to suggest (ui/reference_library.py).
 import html
+import io
+import re
 import streamlit as st
 import tempfile
 from pathlib import Path
-from typing import Dict, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
+from Bio import SeqIO
 from app.src.alias.alias_bootstrap import build_seed_alias_config_from_ref
 from app.src.features.ref_loader import prepare_reference_features
 from app.src.io.genbank_parser import load_genbank_records, load_single_genbank
@@ -23,9 +26,14 @@ from ui.reference_library import (
     suggest_reference,
 )
 from ui.state import REGISTRY_PATH
+from ui import genome_map
 
 
 UPLOAD_NEW = "__upload__"
+# Record lengths come from the LOCUS lines, so the preview never parses the query.
+LOCUS_LENGTH = re.compile(rb"^LOCUS\s+\S+\s+(\d+)\s+bp", re.MULTILINE)
+# Below this share of the reference length a query record counts as partial.
+PARTIAL_SHARE = 0.6
 # (virus_name, records matched, records checked)
 VirusMatch = Tuple[str, int, int]
 
@@ -144,6 +152,92 @@ def _render_reference_picker(query_key: Optional[str], query_virus: Optional[Vir
     return entry, None
 
 
+def _reference_preview(saved_ref: Optional[Dict], ref_file) -> Optional[Dict]:
+    """The chosen reference's genes as the run will read them, cached per file."""
+    if saved_ref:
+        key = f"saved:{saved_ref['id']}"
+
+        def load():
+            return load_single_genbank(reference_file(saved_ref))
+    elif ref_file is not None:
+        key = f"upload:{getattr(ref_file, 'file_id', None) or ref_file.name}"
+
+        def load():
+            text = ref_file.getvalue().decode("utf-8", errors="replace")
+            records = list(SeqIO.parse(io.StringIO(text), "genbank"))
+            if len(records) != 1:
+                raise ValueError(f"Expected 1 record, found {len(records)} in {ref_file.name}")
+            return records[0]
+    else:
+        return None
+
+    cache = st.session_state.setdefault("ref_preview_cache", {})
+    if key not in cache:
+        try:
+            record = load()
+            features, feature_type, alias_path, virus, _ = prepare_reference_features(
+                ref_record=record, alias_config_arg=None, alias_registry_arg=str(REGISTRY_PATH),
+            )
+            cache[key] = {
+                "ref": genome_map.reference_payload(record.id, len(record.seq), features, feature_type),
+                "feature_type": feature_type,
+                "genes": len(features),
+                "alias": Path(alias_path).name if alias_path else None,
+                "raw": [f.get("raw_name") or f.get("name") for f in features if f.get("name_source") == "raw"],
+            }
+        except Exception as e:  # shown in the preview; the run reports it again
+            log_error("previewing the reference", e)
+            cache[key] = {"error": str(e)}
+    return cache[key]
+
+
+def _query_lengths(query_key: Optional[str], query_file, crawled_path: Optional[str]) -> List[int]:
+    if query_key is None:
+        return []
+    cache = st.session_state.setdefault("query_length_cache", {})
+    if query_key not in cache:
+        try:
+            data = query_file.getvalue() if query_file is not None else Path(crawled_path).read_bytes()
+            cache[query_key] = [int(length) for length in LOCUS_LENGTH.findall(data)]
+        except OSError as e:
+            log_error("reading query record lengths", e)
+            cache[query_key] = []
+    return cache[query_key]
+
+
+def _render_reference_preview(preview: Dict, lengths: List[int]) -> None:
+    with _card("ref_preview"):
+        if preview.get("error"):
+            _render_section_title(_t("ref_preview_title"))
+            _render_callout(html.escape(_t("ref_preview_error", error=preview["error"])), tone="warn", icon="!")
+            return
+        ref = preview["ref"]
+        _render_section_title(
+            _t("ref_preview_title"),
+            _t(
+                "ref_preview_caption",
+                count=preview["genes"],
+                level=preview["feature_type"],
+                source=preview["alias"] or _t("ref_preview_no_alias"),
+            ),
+        )
+        genome_map.render({"view": "reference", "ref": ref}, "vl_map_reference")
+        notes = []
+        if preview["raw"]:
+            notes.append(_t("ref_preview_raw", count=len(preview["raw"]), names=", ".join(preview["raw"][:6])))
+        if lengths:
+            partial = sum(1 for length in lengths if length < PARTIAL_SHARE * ref["length"])
+            notes.append(_t(
+                "ref_preview_query",
+                count=f"{len(lengths):,}",
+                full=f"{len(lengths) - partial:,}",
+                partial=f"{partial:,}",
+                share=f"{PARTIAL_SHARE:.0%}",
+            ))
+        for note in notes:
+            st.caption(note)
+
+
 def stage_upload():
     _render_page_intro(
         _t("run_setup"),
@@ -174,6 +268,10 @@ def stage_upload():
     with col_ref, _card("ref"):
         _render_section_title(_t("reference_record"), _t("reference_caption"))
         saved_ref, ref_file = _render_reference_picker(query_key, query_virus)
+
+    preview = _reference_preview(saved_ref, ref_file)
+    if preview:
+        _render_reference_preview(preview, _query_lengths(query_key, query_file, crawled_query_path))
 
     with _card("options"):
         _render_section_title(_t("run_options"), _t("run_options_caption"))

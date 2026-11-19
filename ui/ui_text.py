@@ -47,6 +47,15 @@ UI_TEXT = {
         "forget_reference_help": "Remove this reference from the saved list. Your results are not affected.",
         "query_detected": "Looks like {virus} ({matched} of the first {checked} records).",
         "clear_crawler_query": "Use a different file",
+        "ref_preview_title": "What this reference will look for",
+        "ref_preview_caption": "{count} {level} genes, named by {source}. Every query record is placed against this map.",
+        "ref_preview_no_alias": "their own annotation (no alias config for this virus yet)",
+        "ref_preview_error": "This reference cannot be used: {error}",
+        "ref_preview_raw": "{count} gene(s) are not in the alias config and keep their raw names: {names}.",
+        "ref_preview_query": (
+            "Query: {count} record(s) · {full} near full length · {partial} partial (under {share} of the "
+            "reference length). Genes outside a partial record show as Not in sequence."
+        ),
         "run_options": "Run options",
         "run_options_caption": "Defaults suit most viral datasets.",
         "file_requirements": "File requirements",
@@ -218,9 +227,54 @@ UI_TEXT = {
         "checking_tblastn": "Searching {record} with tblastn…",
         "processing_error": "{count} query record(s) failed during processing. They are excluded from the pass rate and listed below.",
         "processing_errors": "Processing errors",
+        "view_map": "Genome map",
         "view_features": "Features",
         "view_records": "Records",
         "view_export": "Export",
+        # ── genome map (ui/genome_map.py) ─────────────────────────────
+        "map_matrix_title": "Every record against the reference",
+        "map_matrix_caption": (
+            "{shown} of {total} records · one row per record, one column per reference gene. "
+            "Click a row or a cell to open it below, a gene name to see that gene in every record."
+        ),
+        "map_matrix_limit": "Drawing the first {limit} of {total} records. Filter or search to see the rest.",
+        "map_matrix_legend": (
+            "Green: OK · blue: OK after an adjustment · orange: needs review · red: no hit · "
+            "dashed: outside a partial record · orange corner: much shorter than the reference gene · "
+            "+n: annotated names the reference does not have."
+        ),
+        "map_tone_ok": "OK",
+        "map_tone_info": "OK, adjusted",
+        "map_tone_warn": "Needs review",
+        "map_tone_danger": "No hit",
+        "map_tone_neutral": "Not in reference",
+        "map_tone_absent": "Not in sequence",
+        "map_focus_ref": "reference {start}–{end} · {length} nt",
+        "map_focus_median": "median placed length {length} nt",
+        "map_export_gene": "Export {gene} · {count}",
+        "map_close_focus": "Close",
+        "map_focus_check": "{count} record(s) to check for this gene:",
+        "map_share_of_ref": "{share} of reference length",
+        "map_prev": "Previous",
+        "map_next": "Next",
+        "map_attention": "Worth a look · {count}",
+        "map_tracks_legend": (
+            "Ribbons join each reference gene to where it landed on this record. Drag to pan, "
+            "pinch or Ctrl + scroll to zoom, double-click to zoom in. For CDS the lanes are reading "
+            "frames +1, +2, +3. A dashed orange bar under the record is the raw tblastn hit before "
+            "a boundary rescue moved it."
+        ),
+        "map_short": "Passes, but is {share} of the reference gene's length.",
+        "map_short_edge": "{share} of the reference gene's length: the record ends inside this gene.",
+        "map_short_raw": (
+            "The raw tblastn hit runs {raw_start}–{raw_end}; the stop-codon rescue ended the CDS at {end}. "
+            "It still exports with the passing genes."
+        ),
+        "map_length": "Length",
+        "map_shift": "Shift vs reference",
+        "map_reverse": "reverse complement",
+        "map_method": "Method",
+        "map_pick_gene": "Click a gene, a ribbon or a matrix cell to see its coordinates, checks and sequence here.",
         "filter_show": "Show",
         "filter_method": "Method",
         "filter_genes": "Genes",
