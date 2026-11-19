@@ -147,7 +147,7 @@ def _replaced(prrs_run):
 
 
 @requires_sample_data
-@pytest.mark.parametrize("view", ["Features", "Records", "Export"])
+@pytest.mark.parametrize("view", ["Genome map", "Features", "Export"])
 def test_results_show_the_annotation_check(prrs_run, view):
     state, _, _ = _replaced(prrs_run)
     at = _app(stage="results", results_view=view, **state)
@@ -182,6 +182,34 @@ def test_detail_panel_switches_between_annotation_and_tblastn(prrs_run):
     at.run()
     at.button(key=f"check_choice_{record_id}_{lifted.name}").click().run()
     assert at.session_state["annotation_choices"] == {}
+
+
+@requires_sample_data
+def test_results_have_no_records_tab(prrs_run):
+    # The genome map's matrix took over the record table.
+    at = _app(stage="results", **prrs_run)
+    at.run()
+    _assert_clean(at)
+    assert [tab.label for tab in at.tabs] == ["Genome map", "Features", "Export"]
+
+
+@requires_sample_data
+def test_detail_panel_draws_the_gene_and_links_to_the_map(prrs_run):
+    record_id, features = next((rid, fs) for rid, fs in prrs_run["all_results"] if fs and fs[0].method == "tblastn")
+    gene = next(f for f in features if f.query_start is not None)
+    at = AppTest.from_function(_detail_script, default_timeout=180)
+    for key, value in {**prrs_run, "detail_record": record_id, "detail_row": gene}.items():
+        at.session_state[key] = value
+    at.run()
+    _assert_clean(at)
+    page = " ".join(element.proto.body for element in at.get("html"))
+    assert "vl-place" in page and "of the reference gene" in page and "vl-meter" in page
+    assert "Raw name" not in page  # no empty "—" fields any more
+
+    at.button(key=f"show_on_map_{record_id}_{gene.name}").click().run()
+    _assert_clean(at)
+    assert (at.session_state.map_record, at.session_state.map_gene) == (record_id, gene.name)
+    assert at.session_state.results_view == "Genome map"
 
 
 @requires_sample_data
@@ -231,7 +259,7 @@ def test_guide_opens_on_every_workspace(mode):
 
 
 @requires_sample_data
-@pytest.mark.parametrize("view", ["Features", "Records", "Export"])
+@pytest.mark.parametrize("view", ["Genome map", "Features", "Export"])
 def test_results_views_render(prrs_run, view):
     at = _app(stage="results", results_view=view, **prrs_run)
     at.run()

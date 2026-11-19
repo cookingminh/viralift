@@ -22,7 +22,6 @@ from ui.components import (
     _format_fraction_percent,
     _format_percent,
     _kv_html,
-    _pill_column,
     _render_callout,
     _render_page_intro,
     _render_section_title,
@@ -38,7 +37,7 @@ from ui.components import (
 from app.src.lifting.gene_presence import NOT_IN_SEQUENCE, missing_genes_outside_record, nothing_located
 from ui import genome_map
 from ui.fasta_names import FIELDS, MISSING, PRESETS, SEPARATORS, build_header, load_settings, make_unique, record_metadata, save_settings
-from ui.guide import FEATURE_COLUMN_HELP, RECORD_COLUMN_HELP, _open_guide, _render_table_help
+from ui.guide import FEATURE_COLUMN_HELP, _open_guide, _render_table_help
 from ui.i18n import _t
 from ui.services import _canonical_to_ref_map, _results_to_df, _selected_dataframe_rows
 from ui.state import GOOD_STATUSES, REVIEW_STATUSES, _reset
@@ -64,11 +63,16 @@ FEATURE_COLUMNS = {
     "Start": st.column_config.TextColumn("Start", alignment="right", help=FEATURE_COLUMN_HELP["Start"]),
     "End": st.column_config.TextColumn("End", alignment="right", help=FEATURE_COLUMN_HELP["End"]),
     "Length": st.column_config.TextColumn("Length (nt)", alignment="right", help=FEATURE_COLUMN_HELP["Length"]),
-    "Strand": st.column_config.TextColumn(
-        "Strand", width="small", alignment="center", help=FEATURE_COLUMN_HELP["Strand"]
+    # Bars make a weak gene stand out while scanning; the columns still sort numerically.
+    "Of reference": st.column_config.ProgressColumn(
+        "Of reference", format="%.0f%%", min_value=0, max_value=100, help=FEATURE_COLUMN_HELP["Of reference"],
     ),
-    "Coverage": st.column_config.NumberColumn("Coverage", format="%.1f%%", help=FEATURE_COLUMN_HELP["Coverage"]),
-    "Identity": st.column_config.TextColumn("Identity", alignment="right", help=FEATURE_COLUMN_HELP["Identity"]),
+    "Coverage": st.column_config.ProgressColumn(
+        "Coverage", format="%.0f%%", min_value=0, max_value=100, help=FEATURE_COLUMN_HELP["Coverage"],
+    ),
+    "Identity": st.column_config.ProgressColumn(
+        "Identity", format="%.1f%%", min_value=0, max_value=100, help=FEATURE_COLUMN_HELP["Identity"],
+    ),
     "Raw name": st.column_config.TextColumn("Raw name", help=FEATURE_COLUMN_HELP["Raw name"]),
 }
 
@@ -87,20 +91,6 @@ RECORD_HEALTH_LABELS = {
     "no_genes": _t("health_no_genes"),
     "failed": _t("failed"),
     "empty": _t("empty"),
-}
-RECORD_COLUMNS = {
-    "Record": st.column_config.TextColumn("Record", help=RECORD_COLUMN_HELP["Record"]),
-    "Health": _pill_column(
-        "Health", RECORD_HEALTH_TONE, RECORD_HEALTH_TONE.get, RECORD_HEALTH_LABELS.get,
-        help=RECORD_COLUMN_HELP["Health"], width=140,
-    ),
-    "Length": st.column_config.NumberColumn("Length (bp)", format="%d", help=RECORD_COLUMN_HELP["Length"]),
-    "Features": st.column_config.NumberColumn("Features", format="%d", help=RECORD_COLUMN_HELP["Features"]),
-    "In sequence": st.column_config.NumberColumn("In sequence", format="%d", help=RECORD_COLUMN_HELP["In sequence"]),
-    "Pass rate": st.column_config.NumberColumn("Pass rate", format="%.0f%%", help=RECORD_COLUMN_HELP["Pass rate"]),
-    "Needs review": st.column_config.NumberColumn("Needs review", format="%d", help=RECORD_COLUMN_HELP["Needs review"]),
-    "Method": st.column_config.TextColumn("Method", help=RECORD_COLUMN_HELP["Method"]),
-    "Error": st.column_config.TextColumn("Error", width="large", help=RECORD_COLUMN_HELP["Error"]),
 }
 METHOD_TAG_LABELS = {
     "direct": _t("method_direct"),
@@ -122,18 +112,6 @@ def _export_key(query_id: str, feature: LiftedFeature, gene: str) -> str:
             feature.strand,
         )
     )
-
-
-def _boundary_check(feature: LiftedFeature) -> str:
-    checks = []
-    for label, value in (
-        ("start", feature.has_start_codon),
-        ("stop", feature.has_stop_codon),
-        ("frame", feature.in_frame),
-    ):
-        if value is not None:
-            checks.append(f"{label} {'✓' if value else '✗'}")
-    return " · ".join(checks)
 
 
 def _rescue_action(feature: LiftedFeature) -> str:
@@ -250,14 +228,23 @@ def _feature_length(feature: LiftedFeature) -> Optional[int]:
     return feature.query_end - feature.query_start + 1
 
 
-# Numbers that can be missing are shown as text: st.dataframe prints a null
-# number as a literal "None", and unplaced genes have no coordinates. Text
+def _as_percent(fraction: Optional[float]) -> Optional[float]:
+    return None if fraction is None else fraction * 100
+
+
+def _reference_share(feature: LiftedFeature) -> Optional[float]:
+    """Placed length as a share of the reference gene's length (1.0 = same length)."""
+    length = _feature_length(feature)
+    if length is None or feature.ref_start is None or feature.ref_end is None:
+        return None
+    return length / (feature.ref_end - feature.ref_start + 1)
+
+
+# Positions that can be missing are shown as text: st.dataframe prints a null
+# integer as a literal "None", and unplaced genes have no coordinates. Text
 # columns sort with localeCompare, where space-padding to a fixed width keeps
-# numeric order and "" sorts first.
-def _identity_cell(identity: Optional[float]) -> str:
-    return f"{identity:5.1f}%" if identity is not None else ""
-
-
+# numeric order and "" sorts first. The bar columns are floats, where a
+# missing value is NaN and shows as an empty cell.
 def _position_cell(value: Optional[int]) -> str:
     return f"{value:9d}" if value is not None else ""
 
@@ -274,17 +261,18 @@ def _feature_frame(rows: List[FeatureRow]) -> pd.DataFrame:
                 "Start": _position_cell(lf.query_start),
                 "End": _position_cell(lf.query_end),
                 "Length": _position_cell(_feature_length(lf)),
-                # A gene that was never placed has no strand on this record.
-                "Strand": "" if lf.query_start is None else "−" if lf.strand == "-" else lf.strand,
-                "Coverage": lf.coverage * 100 if lf.coverage is not None else None,
-                "Identity": _identity_cell(lf.identity),
+                "Of reference": _as_percent(_reference_share(lf)),
+                # An unplaced gene has no alignment on this record.
+                "Coverage": _as_percent(lf.coverage) if lf.query_start is not None else None,
+                "Identity": lf.identity,
                 "Raw name": lf.source_name or "",
             }
             for query_id, lf, gene in rows
         ],
         columns=list(FEATURE_COLUMNS),
     )
-    frame["Coverage"] = pd.to_numeric(frame["Coverage"], errors="coerce")
+    for column in ("Of reference", "Coverage", "Identity"):
+        frame[column] = pd.to_numeric(frame[column], errors="coerce")
     return frame
 
 
@@ -305,47 +293,145 @@ def _clear_approvals() -> None:
     st.session_state.pop("fasta_approval_editor", None)
 
 
-def _render_feature_detail(query_id: str, lf: LiftedFeature, gene: str) -> None:
-    approved = _export_key(query_id, lf, gene) in _approved_export_keys()
-    coords = (
-        f"{lf.query_start:,}–{lf.query_end:,} ({lf.strand})"
-        if lf.query_start is not None and lf.query_end is not None
-        else "not mapped"
-    )
-    ref_coords = (
-        f"{lf.ref_start:,}–{lf.ref_end:,}"
-        if lf.ref_start is not None and lf.ref_end is not None
-        else "—"
-    )
-    items = [
-        ("Raw name", lf.source_name or "—"),
-        ("Query coordinates", coords),
-        ("Reference coordinates", ref_coords),
-        ("Length", f"{len(lf.sequence):,} nt" if lf.sequence else "—"),
-        ("Coverage · identity", f"{_format_fraction_percent(lf.coverage)} · {_format_percent(lf.identity)}"),
-        ("Boundary check", _boundary_check(lf) or "—"),
-        ("Rescue action", _rescue_action(lf) or "—"),
-        ("Bit score", f"{lf.score:.1f}" if lf.score is not None else "—"),
+# ── gene detail ───────────────────────────────────────────────────────────
+# One panel for a gene, shared by the Genome map and the Features table: where
+# it sits on the record and on the reference (with a bar of its length against
+# the reference gene), coverage and identity as bars against the run's cut-offs,
+# the boundary checks, the annotation check with its tblastn switch, and the
+# sequence. Fields that do not apply to the gene are left out, not shown as "—".
+
+def _record_length(query_id: str) -> int:
+    return next((len(r.seq) for r in st.session_state.query_records or [] if r.id == query_id), 0)
+
+
+def _placement_html(lf: LiftedFeature) -> str:
+    def row(label: str, coords: str, length: str) -> str:
+        return (
+            "<div class='vl-place-row'>"
+            f"<span class='vl-place-label'>{html.escape(label)}</span>"
+            f"<span class='vl-place-coords'>{coords}</span>"
+            f"<span class='vl-place-len'>{html.escape(length)}</span></div>"
+        )
+
+    rows = []
+    if lf.query_start is not None and lf.query_end is not None:
+        strand = "−" if lf.strand == "-" else "+"
+        rows.append(row(_t("detail_record"), f"{lf.query_start:,}–{lf.query_end:,} <span class='vl-faint'>({strand})</span>", f"{_feature_length(lf):,} nt"))
+    else:
+        rows.append(row(_t("detail_record"), html.escape(_t("detail_not_placed")), ""))
+    if lf.ref_start is not None and lf.ref_end is not None:
+        rows.append(row(_t("detail_reference"), f"{lf.ref_start:,}–{lf.ref_end:,}", f"{lf.ref_end - lf.ref_start + 1:,} nt"))
+    else:
+        rows.append(row(_t("detail_reference"), html.escape(_t("detail_no_reference")), ""))
+    share = _reference_share(lf)
+    bar = ""
+    if share is not None:
+        tone = "warn" if genome_map.is_much_shorter(lf) or share > 1.1 else "ok"
+        bar = (
+            f"<div class='vl-lenbar tone-{tone}'><span style='width:{min(share, 1) * 100:.1f}%'></span></div>"
+            f"<div class='vl-lenbar-note'>{html.escape(_t('detail_share', share=f'{share:.0%}'))}</div>"
+        )
+    return "<div class='vl-place'>" + "".join(rows) + bar + "</div>"
+
+
+def _meters_html(lf: LiftedFeature) -> str:
+    """Coverage and identity as bars, with the run's cut-off marked on each."""
+    if lf.query_start is None or lf.ref_start is None:
+        return ""  # nothing placed, or no reference protein to align to
+    if lf.method == "direct" and lf.annotation_check is None:
+        text = _t("detail_not_aligned")
+        if not st.session_state.get("check_annotations"):
+            text += " " + _t("detail_turn_on_check")
+        return f"<div class='vl-explain'>{html.escape(text)}</div>"
+
+    def meter(label: str, value: float, cutoff: float) -> str:
+        tone = "ok" if value >= cutoff else "warn"
+        return (
+            f"<div class='vl-meter tone-{tone}'>"
+            f"<div class='vl-meter-head'><span>{html.escape(label)}</span><b>{value:.1f}%</b></div>"
+            f"<div class='vl-meter-bar'><span style='width:{min(value, 100):.1f}%'></span>"
+            f"<i style='left:{cutoff:.1f}%' title='{html.escape(_t('detail_cutoff', value=f'{cutoff:.0f}%'))}'></i></div></div>"
+        )
+
+    meters = [meter(_t("detail_coverage"), (lf.coverage or 0) * 100, st.session_state.min_coverage * 100)]
+    if lf.identity is not None:
+        meters.append(meter(_t("detail_identity"), lf.identity, st.session_state.min_identity * 100))
+    return "<div class='vl-meters'>" + "".join(meters) + "</div>"
+
+
+def _checks_html(lf: LiftedFeature) -> str:
+    pills = [
+        f"<span class='vl-badge tone-{'ok' if value else 'danger'}'>{label} {'✓' if value else '✗'}</span>"
+        for label, value in (("start", lf.has_start_codon), ("stop", lf.has_stop_codon), ("frame", lf.in_frame))
+        if value is not None
     ]
+    facts = []
+    if _rescue_action(lf):
+        facts.append((_t("detail_rescue"), _rescue_action(lf)))
+    if (
+        lf.raw_start is not None and lf.raw_end is not None and lf.query_start is not None
+        and max(abs(lf.raw_start - lf.query_start), abs(lf.raw_end - lf.query_end)) > genome_map.RAW_HIT_MIN_SHIFT
+    ):
+        facts.append((_t("detail_raw_hit"), f"{lf.raw_start:,}–{lf.raw_end:,}"))
+    if lf.score is not None:
+        facts.append((_t("detail_bit_score"), f"{lf.score:.1f}"))
+    if not pills and not facts:
+        return ""
+    return (
+        "<div class='vl-checks'>" + "".join(pills)
+        + "".join(f"<span class='vl-fact-inline'>{html.escape(k)} <b>{html.escape(v)}</b></span>" for k, v in facts)
+        + "</div>"
+    )
+
+
+def _short_note(lf: LiftedFeature, length: int) -> Optional[str]:
+    """Why a passing gene is far shorter than its reference gene, when it is."""
+    if not genome_map.is_much_shorter(lf):
+        return None
+    share = _format_fraction_percent(_reference_share(lf))
+    if lf.query_start == 1 or lf.query_end == length:
+        return _t("map_short_edge", share=share)
+    text = _t("map_short", share=share)
+    if lf.raw_end is not None and lf.raw_end - lf.query_end > genome_map.RAW_HIT_MIN_SHIFT:
+        text += " " + _t("map_short_raw", raw_start=f"{lf.raw_start:,}", raw_end=f"{lf.raw_end:,}", end=f"{lf.query_end:,}")
+    return text
+
+
+def _show_on_map(query_id: str, name: str) -> None:
+    _open_on_map(query_id, name)
+    st.session_state.results_view = _t("view_map")
+
+
+def _render_feature_detail(query_id: str, lf: LiftedFeature, gene: str, on_map: bool = False) -> None:
+    approved = _export_key(query_id, lf, gene) in _approved_export_keys()
     head = (
         "<div class='vl-detail-head'>"
         f"<span class='vl-detail-title'>{html.escape(query_id)} · {html.escape(gene)}</span>"
         f"{_status_badge(lf.status)}"
-        f"<span class='vl-chip'>{html.escape(lf.method or 'unknown')}</span>"
+        f"<span class='vl-chip'>{html.escape(_method_label(lf.method) or 'unknown')}</span>"
         + ("<span class='vl-chip is-primary'>approved for FASTA</span>" if approved else "")
         + "</div>"
     )
+    if lf.source_name and lf.source_name != gene:
+        head += f"<div class='vl-meta vl-detail-sub'>{html.escape(_t('detail_annotated_as', name=lf.source_name))}</div>"
     explain_key = {
         "invalid_boundaries": "invalid_boundary_help",
         NOT_IN_SEQUENCE: "not_in_sequence_help",
     }.get(lf.status)
     explain = f"<div class='vl-explain'>{html.escape(_t(explain_key))}</div>" if explain_key else ""
-    sequence = _sequence_html(lf.sequence) if lf.sequence else ""
     with _card("feature_detail"):
-        st.html(head + _kv_html(items) + explain)
+        st.html(head + _placement_html(lf) + _meters_html(lf) + _checks_html(lf) + explain)
+        note = _short_note(lf, _record_length(query_id))
+        if note:
+            _render_callout(html.escape(note), tone="warn", icon="!")
         _render_annotation_check(query_id, lf, gene)
-        if sequence:
-            st.html(sequence)
+        if not on_map and (lf.query_start is not None or lf.ref_start is not None):
+            st.button(
+                _t("show_on_map"), key=f"show_on_map_{query_id}_{lf.name}", icon=":material/genetics:",
+                on_click=_show_on_map, args=(query_id, lf.name),
+            )
+        if lf.sequence:
+            st.html(_sequence_html(lf.sequence))
 
 
 def _span_length(feature: LiftedFeature) -> str:
@@ -584,102 +670,6 @@ def _render_features_view(rows: List[FeatureRow]) -> None:
         _render_feature_detail(*selected_row)
 
 
-def _render_records_view(
-    all_results: List[Tuple[str, List[LiftedFeature]]],
-    rows: List[FeatureRow],
-    error_map: Dict[str, str],
-) -> None:
-    lengths = {record.id: len(record.seq) for record in st.session_state.query_records or []}
-    overview = []
-    for query_id, features in all_results:
-        total = len(features)
-        in_sequence = sum(1 for f in features if f.status != NOT_IN_SEQUENCE)
-        passed = sum(1 for f in features if f.status in GOOD_STATUSES)
-        health = _record_health(query_id, features, error_map)
-        overview.append({
-            "health_key": health,
-            "Record": query_id,
-            "Health": [health],
-            "Length": lengths.get(query_id),
-            "Features": total,
-            "In sequence": in_sequence,
-            "Pass rate": passed / in_sequence * 100 if in_sequence else 0.0,
-            "Needs review": sum(1 for f in features if f.status in REVIEW_STATUSES),
-            "Method": METHOD_TAG_LABELS[_method_tag(features)],
-            "Error": error_map.get(query_id, ""),
-        })
-
-    present = [h for h in RECORD_HEALTH_LABELS if any(row["health_key"] == h for row in overview)]
-    record_id: Optional[str] = None
-    with _card("records"):
-        with st.container(horizontal=True, horizontal_alignment="distribute", vertical_alignment="center"):
-            title_slot = st.empty()
-            _render_table_help(RECORD_COLUMN_HELP, key="records_table_help", status_legend=False)
-
-        with st.container(horizontal=True, vertical_alignment="center", gap="small"):
-            health = st.segmented_control(
-                _t("health_filter"),
-                ["all"] + present,
-                format_func=lambda h: _t("filter_all") if h == "all" else RECORD_HEALTH_LABELS[h],
-                default="all",
-                required=True,
-                key="results_record_health",
-                label_visibility="collapsed",
-            )
-            search = st.text_input(
-                _t("search_record"),
-                placeholder=_t("search_record"),
-                icon=":material/search:",
-                key="results_record_search",
-                label_visibility="collapsed",
-            ).strip().lower()
-
-        visible = [
-            row for row in overview
-            if (health == "all" or row["health_key"] == health)
-            and (not search or search in row["Record"].lower())
-        ]
-        with title_slot:
-            _render_section_title(
-                _t("record_table"),
-                _t("record_table_caption", shown=f"{len(visible):,}", total=f"{len(overview):,}"),
-            )
-        if not visible:
-            st.info(_t("no_rows"))
-            return
-
-        st.caption(_t("select_record_hint"))
-        event = st.dataframe(
-            pd.DataFrame(visible, columns=["health_key", *RECORD_COLUMNS]).drop(columns=["health_key"]),
-            column_config=RECORD_COLUMNS,
-            hide_index=True,
-            height=_table_height(len(visible), cap=420),
-            on_select="rerun",
-            selection_mode="single-row",
-            key=f"results_records_{_filter_signature(health, search)}",
-        )
-        selected = _selected_dataframe_rows(event)
-        if selected and selected[0] < len(visible):
-            record_id = visible[selected[0]]["Record"]
-
-    if record_id is None:
-        return
-    record_rows = [row for row in rows if row[0] == record_id]
-    with _card("record_detail"):
-        _render_section_title(record_id, f"{len(record_rows)} feature(s)")
-        if record_id in error_map:
-            st.error(error_map[record_id])
-        elif not record_rows:
-            st.warning(_t("no_features"))
-        else:
-            st.dataframe(
-                _feature_frame(record_rows).drop(columns=["Record"]),
-                column_config=FEATURE_COLUMNS,
-                hide_index=True,
-                height=_table_height(len(record_rows), cap=420),
-            )
-
-
 # ── genome map ────────────────────────────────────────────────────────────
 # A record x gene matrix under the reference bar, then the selected record drawn
 # under the reference with ribbons from each reference gene to where it landed
@@ -836,20 +826,6 @@ def _render_gene_focus(gene: str, display_results: Results, ref: Dict, label_of)
                 )
 
 
-def _render_map_note(lf: LiftedFeature, length: int) -> None:
-    """What the map shows about this gene that the detail panel does not say."""
-    if not genome_map.is_much_shorter(lf):
-        return
-    share = _format_fraction_percent((lf.query_end - lf.query_start + 1) / (lf.ref_end - lf.ref_start + 1))
-    if lf.query_start == 1 or lf.query_end == length:
-        text = _t("map_short_edge", share=share)
-    else:
-        text = _t("map_short", share=share)
-        if lf.raw_end is not None and lf.raw_end - lf.query_end > genome_map.RAW_HIT_MIN_SHIFT:
-            text += " " + _t("map_short_raw", raw_start=f"{lf.raw_start:,}", raw_end=f"{lf.raw_end:,}", end=f"{lf.query_end:,}")
-    _render_callout(html.escape(text), tone="warn", icon="!")
-
-
 def _render_record_summary(record_id: str, features: List[LiftedFeature], length: int, health: str, ref: Dict, error: Optional[str]) -> None:
     offset, flipped = genome_map.record_placement(features, genome_map.reference_strands(ref), length)
     statuses = Counter(f.status for f in features)
@@ -987,8 +963,7 @@ def _render_map_view(display_results: Results, error_map: Dict[str, str], ref_na
         if lf is None:
             _render_record_summary(record_id, features, length, health[record_id], ref, error_map.get(record_id))
         else:
-            _render_map_note(lf, length)
-            _render_feature_detail(record_id, lf, label_of(lf.name) if label_of else lf.name)
+            _render_feature_detail(record_id, lf, label_of(lf.name) if label_of else lf.name, on_map=True)
 
 
 def _render_approval_editor(rows: List[FeatureRow]) -> None:
@@ -1439,17 +1414,14 @@ def stage_results():
             st.dataframe(pd.DataFrame(run_errors), width="stretch", hide_index=True)
 
     # Stateful tabs: only the open tab's content runs. The genome map opens first.
-    map_tab, features_tab, records_tab, export_tab = st.tabs(
-        [_t("view_map"), _t("view_features"), _t("view_records"), _t("view_export")],
+    map_tab, features_tab, export_tab = st.tabs(
+        [_t("view_map"), _t("view_features"), _t("view_export")],
         key="results_view",
         on_change="rerun",
     )
     if features_tab.open:
         with features_tab:
             _render_features_view(rows)
-    elif records_tab.open:
-        with records_tab:
-            _render_records_view(display_results, rows, error_map)
     elif export_tab.open:
         with export_tab:
             _render_export_view(rows, df, ref_name_map)

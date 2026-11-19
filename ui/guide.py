@@ -50,7 +50,7 @@ PAGE_GUIDES: Dict[str, Dict[str, object]] = {
                 "On (default): reference genes an annotated record does not name, such as a genome "
                 "annotated only as P1/P2/P3 precursors or with 2A and 3B left out, are lifted with "
                 "tblastn. Its annotated genes stay exactly as they are; such a record shows "
-                "**Direct + tblastn** in the Records table. Off: annotated records return only the genes they name."
+                "**Direct + tblastn** on the genome map. Off: annotated records return only the genes they name."
             )),
             ("Check annotations against the reference", (
                 "On (default): every annotated gene is aligned to the reference protein of the same "
@@ -189,13 +189,10 @@ PAGE_GUIDES: Dict[str, Dict[str, object]] = {
                 "insertion or a cut-short gene is visible. Click a gene for its detail panel."
             )),
             ("Features tab", (
-                "One row per gene in each query record. Filter by status, method or gene, or search. "
-                "Tick a row to see coordinates, boundary checks and the sequence."
-            )),
-            ("Records tab", (
-                "One row per query record with its health: **Passed**, **Partial** (only part of "
-                "the genome, everything in it passed), **Needs review**, **No genes found** or "
-                "**Failed**. Tick a record to list its genes or read its error."
+                "Every gene of every record in one sortable table, for what the map cannot do: sort by "
+                "identity, coverage or length against the reference across the whole run. Filter by "
+                "status, method or gene, or search. Tick a row for the same detail panel as the map; "
+                "**Show on genome map** opens it there."
             )),
             ("Export tab", (
                 "TSV with every feature (display or raw source names), and FASTA per gene or combined, "
@@ -369,32 +366,20 @@ FEATURE_COLUMN_HELP = {
     "Start": "First base on the query record, 1-based and inclusive (GenBank style). Blank when the gene was not found.",
     "End": "Last base. Start is the lower number on both strands.",
     "Length": "End − Start + 1, in nucleotides.",
-    "Strand": "+ forward, − reverse complement.",
+    "Of reference": (
+        "Length as a share of the reference gene's length. Far under 100% means a fragment or a "
+        "gene cut short; over 100% an annotation longer than the gene."
+    ),
     "Check": (
         "Annotation check for genes taken from the record's annotation: Matches reference, Partial, "
         "Fragment, Low identity or Longer than gene; → tblastn when tblastn's placement is used instead."
     ),
     "Coverage": (
         "Share of the reference protein the alignment covers: tblastn's, or for annotated genes the "
-        "annotation check's (100% when the check is off)."
+        "annotation check's (100% when the check is off). Blank when the gene was not placed."
     ),
     "Identity": "Amino-acid identity of the alignment. Blank for annotated genes when the check is off.",
     "Raw name": "Name as written in the query annotation. Blank for tblastn features.",
-}
-
-RECORD_COLUMN_HELP = {
-    "Record": "Query record (GenBank accession.version).",
-    "Health": (
-        "Passed; Partial (covers part of the genome, all of it passed); Needs review; "
-        "No genes found (none of the reference genes located); Failed (errored) or Empty."
-    ),
-    "Length": "Length of the query record in bases. Short records usually hold a single gene or region.",
-    "Features": "Reference genes reported for this record.",
-    "In sequence": "Genes that lie inside this record; the rest are Not in sequence.",
-    "Pass rate": "Share of the genes in sequence with a passing status.",
-    "Needs review": "Genes in this record to inspect before use.",
-    "Method": "Direct, tblastn, or both when only some genes were annotated.",
-    "Error": "Why the record failed, if it did.",
 }
 
 TONE_LEGEND = [
