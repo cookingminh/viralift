@@ -465,8 +465,6 @@ h1, h2, h3, h4 { letter-spacing: -0.015em; text-wrap: balance; }
 /* ── result tables + tabs ───────────────────────────────────────── */
 /* tab markup differs across Streamlit versions: baseweb tabs (≤1.58) and react-aria stTab (1.67+) */
 :is([data-baseweb="tab"], [data-testid="stTab"]) p { font-weight: 600; font-size: 0.95rem; }
-.st-key-features_table_help button, .st-key-records_table_help button { color: var(--vl-muted); }
-.st-key-features_table_help button:hover, .st-key-records_table_help button:hover { color: var(--vl-primary-text); }
 
 /* ── guide dialog + "How to read" popovers (ui/guide.py) ────────── */
 /* Selectors are prefixed with .vl-guide so they outrank Streamlit's own

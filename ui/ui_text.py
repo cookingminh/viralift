@@ -19,7 +19,6 @@ UI_TEXT = {
         "guide_this_page": "This page",
         "guide_workflow": "How ViraLift works",
         "guide_reference": "Statuses & terms",
-        "table_help": "How to read",
         # ── step 1 · setup ────────────────────────────────────────────
         "run_setup": "Run pipeline",
         "upload_title": "Set up a run",
@@ -206,7 +205,7 @@ UI_TEXT = {
         "check_looks_like": "{verdict} · looks like {gene}",
         "annotation_check_banner": (
             "<b>Annotation check</b>: {confirmed} of {checked} annotated genes match the reference"
-            "{issues}.{replaced} Tick a gene to compare its annotation with tblastn."
+            "{issues}.{replaced} Click a gene on the genome map to compare its annotation with tblastn."
         ),
         "annotation_check_issue": "{count} {label}",
         "annotation_check_replaced": " For {count} of them tblastn's more exact placement is used.",
@@ -243,8 +242,6 @@ UI_TEXT = {
         "detail_raw_hit": "Raw tblastn hit",
         "detail_bit_score": "Bit score",
         "detail_annotated_as": "Annotated as “{name}”",
-        "show_on_map": "Show on genome map",
-        "view_features": "Features",
         "view_export": "Export",
         # ── genome map (ui/genome_map.py) ─────────────────────────────
         "map_matrix_title": "Every record against the reference",
@@ -252,12 +249,22 @@ UI_TEXT = {
             "{shown} of {total} records · one row per record, one column per reference gene. "
             "Click a row or a cell to open it below, a gene name to see that gene in every record."
         ),
-        "map_matrix_limit": "Drawing the first {limit} of {total} records. Filter or search to see the rest.",
         "map_matrix_legend": (
             "Green: OK · blue: OK after an adjustment · orange: needs review · red: no hit · "
             "dashed: outside a partial record · orange corner: much shorter than the reference gene · "
             "+n: annotated names the reference does not have."
         ),
+        "map_sort": "Sort",
+        "map_sort_order": "Sort: run order",
+        "map_sort_review": "Sort: needs review first",
+        "map_sort_identity": "Sort: lowest identity",
+        "map_sort_coverage": "Sort: lowest coverage",
+        "map_sort_length": "Sort: shortest against the reference",
+        "map_metric_identity": "identity",
+        "map_metric_coverage": "coverage",
+        "map_metric_length": "length against the reference gene",
+        "map_sorted_gene": "Sorted by {gene}'s {metric}, lowest first. Close the gene to sort by each record's lowest instead.",
+        "map_sorted_lowest": "Sorted by each record's lowest {metric}, lowest first. Click a gene name to sort by that gene.",
         "map_tone_ok": "OK",
         "map_tone_info": "OK, adjusted",
         "map_tone_warn": "Needs review",
@@ -290,27 +297,12 @@ UI_TEXT = {
         "map_reverse": "reverse complement",
         "map_method": "Method",
         "map_pick_gene": "Click a gene, a ribbon or a matrix cell to see its coordinates, checks and sequence here.",
-        "filter_show": "Show",
-        "filter_method": "Method",
-        "filter_genes": "Genes",
         "filter_all": "All",
-        "filter_review": "Needs review",
-        "filter_passed": "Passed",
-        "filter_other": "Other",
-        "filter_in_sequence": "In sequence",
-        "filter_absent": "Not in sequence",
-        "filter_any_method": "Any method",
         "method_direct": "Direct",
         "method_tblastn": "tblastn",
         "method_both": "Direct + tblastn",
-        "all_genes": "All genes",
-        "search_feature": "Search record or gene",
         "search_record": "Search record ID",
         "health_filter": "Health",
-        "feature_table": "Feature table",
-        "feature_table_caption": "{shown} of {total} features · one row per gene in each query record",
-        "no_rows": "No features match these filters.",
-        "select_hint": "Tick a row to see its coordinates, boundary checks and sequence below the table.",
         "record_overview": "Records",
         "all": "all",
         "failed": "Failed",

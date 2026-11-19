@@ -6,7 +6,6 @@
 # (app/src/lifting/gene_presence.py) and kept out of the pass rate and review counts; the
 # engine's own statuses, used by every export, are left untouched.
 import dataclasses
-import hashlib
 import html
 from collections import Counter
 import pandas as pd
@@ -37,9 +36,9 @@ from ui.components import (
 from app.src.lifting.gene_presence import NOT_IN_SEQUENCE, missing_genes_outside_record, nothing_located
 from ui import genome_map
 from ui.fasta_names import FIELDS, MISSING, PRESETS, SEPARATORS, build_header, load_settings, make_unique, record_metadata, save_settings
-from ui.guide import FEATURE_COLUMN_HELP, _open_guide, _render_table_help
+from ui.guide import FEATURE_COLUMN_HELP, _open_guide
 from ui.i18n import _t
-from ui.services import _canonical_to_ref_map, _results_to_df, _selected_dataframe_rows
+from ui.services import _canonical_to_ref_map, _results_to_df
 from ui.state import GOOD_STATUSES, REVIEW_STATUSES, _reset
 
 
@@ -122,16 +121,6 @@ def _rescue_action(feature: LiftedFeature) -> str:
     if feature.rescue_offset is not None:
         return f"start {feature.rescue_offset:+d} bp"
     return ""
-
-
-def _status_group(status: str) -> str:
-    if status == NOT_IN_SEQUENCE:
-        return "absent"
-    if status in REVIEW_STATUSES:
-        return "review"
-    if status in GOOD_STATUSES:
-        return "passed"
-    return "other"
 
 
 def _record_health(query_id: str, features: List[LiftedFeature], error_map: Dict[str, str]) -> str:
@@ -294,7 +283,7 @@ def _clear_approvals() -> None:
 
 
 # ── gene detail ───────────────────────────────────────────────────────────
-# One panel for a gene, shared by the Genome map and the Features table: where
+# The panel for the gene clicked on the Genome map: where
 # it sits on the record and on the reference (with a bar of its length against
 # the reference gene), coverage and identity as bars against the run's cut-offs,
 # the boundary checks, the annotation check with its tblastn switch, and the
@@ -397,12 +386,7 @@ def _short_note(lf: LiftedFeature, length: int) -> Optional[str]:
     return text
 
 
-def _show_on_map(query_id: str, name: str) -> None:
-    _open_on_map(query_id, name)
-    st.session_state.results_view = _t("view_map")
-
-
-def _render_feature_detail(query_id: str, lf: LiftedFeature, gene: str, on_map: bool = False) -> None:
+def _render_feature_detail(query_id: str, lf: LiftedFeature, gene: str) -> None:
     approved = _export_key(query_id, lf, gene) in _approved_export_keys()
     head = (
         "<div class='vl-detail-head'>"
@@ -425,11 +409,6 @@ def _render_feature_detail(query_id: str, lf: LiftedFeature, gene: str, on_map: 
         if note:
             _render_callout(html.escape(note), tone="warn", icon="!")
         _render_annotation_check(query_id, lf, gene)
-        if not on_map and (lf.query_start is not None or lf.ref_start is not None):
-            st.button(
-                _t("show_on_map"), key=f"show_on_map_{query_id}_{lf.name}", icon=":material/genetics:",
-                on_click=_show_on_map, args=(query_id, lf.name),
-            )
         if lf.sequence:
             st.html(_sequence_html(lf.sequence))
 
@@ -554,122 +533,6 @@ def _render_annotation_check(query_id: str, lf: LiftedFeature, gene: str) -> Non
         st.rerun()
 
 
-def _filter_signature(*parts: object) -> str:
-    return hashlib.md5(repr(parts).encode("utf-8")).hexdigest()[:10]
-
-
-def _render_features_view(rows: List[FeatureRow]) -> None:
-    group_counts = {"in_sequence": 0, "review": 0, "passed": 0, "other": 0, "absent": 0, "all": len(rows)}
-    for _, lf, _ in rows:
-        group = _status_group(lf.status)
-        group_counts[group] += 1
-        if group != "absent":
-            group_counts["in_sequence"] += 1
-    group_labels = {
-        "in_sequence": _t("filter_in_sequence"),
-        "review": _t("filter_review"),
-        "passed": _t("filter_passed"),
-        "other": _t("filter_other"),
-        "absent": _t("filter_absent"),
-        "all": _t("filter_all"),
-    }
-    # With partial records most rows are "not in sequence", so the table opens
-    # on the genes that are actually there.
-    first = "in_sequence" if group_counts["absent"] else "all"
-    show_options = [first] + [
-        group for group in ("review", "passed", "other", "absent") if group_counts[group]
-    ] + (["all"] if first != "all" else [])
-    method_labels = {
-        "any": _t("filter_any_method"),
-        "direct": _t("method_direct"),
-        "tblastn": _t("method_tblastn"),
-    }
-
-    selected_row: Optional[FeatureRow] = None
-    with _card("features"):
-        # The title shows the live row count, so it is filled in after the filters run.
-        with st.container(horizontal=True, horizontal_alignment="distribute", vertical_alignment="center"):
-            title_slot = st.empty()
-            _render_table_help(FEATURE_COLUMN_HELP, key="features_table_help")
-
-        with st.container(horizontal=True, vertical_alignment="center", gap="small"):
-            show = st.segmented_control(
-                _t("filter_show"),
-                show_options,
-                format_func=lambda group: f"{group_labels[group]} · {group_counts[group]:,}",
-                default=first,
-                required=True,
-                key="results_show",
-                label_visibility="collapsed",
-            )
-            method = st.segmented_control(
-                _t("filter_method"),
-                list(method_labels),
-                format_func=method_labels.get,
-                default="any",
-                required=True,
-                key="results_method",
-                label_visibility="collapsed",
-            )
-            genes = st.multiselect(
-                _t("filter_genes"),
-                sorted({gene for _, _, gene in rows}),
-                placeholder=_t("all_genes"),
-                key="results_genes",
-                label_visibility="collapsed",
-                width=240,
-            )
-            search = st.text_input(
-                _t("search_feature"),
-                placeholder=_t("search_feature"),
-                icon=":material/search:",
-                key="results_search",
-                label_visibility="collapsed",
-            ).strip().lower()
-
-        visible = [
-            (query_id, lf, gene)
-            for query_id, lf, gene in rows
-            if (
-                show == "all"
-                or _status_group(lf.status) == show
-                or (show == "in_sequence" and _status_group(lf.status) != "absent")
-            )
-            and (method == "any" or lf.method == method)
-            and (not genes or gene in genes)
-            and (not search or search in query_id.lower() or search in gene.lower())
-        ]
-        with title_slot:
-            _render_section_title(
-                _t("feature_table"),
-                _t("feature_table_caption", shown=f"{len(visible):,}", total=f"{len(rows):,}"),
-            )
-        if not visible:
-            st.info(_t("no_rows"))
-            return
-
-        # The hint sits above the table so the table's hover toolbar has room
-        # and does not cover the search box.
-        st.caption(_t("select_hint"))
-        # A new key per filter combination resets the selection when the visible
-        # rows change, so a stale row index never points at a different feature.
-        event = st.dataframe(
-            _feature_frame(visible),
-            column_config=FEATURE_COLUMNS,
-            hide_index=True,
-            height=_table_height(len(visible)),
-            on_select="rerun",
-            selection_mode="single-row",
-            key=f"results_features_{_filter_signature(show, method, tuple(genes), search, st.session_state.get('annotation_choice_version', 0))}",
-        )
-        selected = _selected_dataframe_rows(event)
-        if selected and selected[0] < len(visible):
-            selected_row = visible[selected[0]]
-
-    if selected_row:
-        _render_feature_detail(*selected_row)
-
-
 # ── genome map ────────────────────────────────────────────────────────────
 # A record x gene matrix under the reference bar, then the selected record drawn
 # under the reference with ribbons from each reference gene to where it landed
@@ -682,6 +545,24 @@ MAP_PICKER_KEY = "vl_map_picker"
 MAP_ATTENTION_LIMIT = 8
 MAP_CHECK_LIMIT = 8
 HEALTH_META = {key: (label, RECORD_HEALTH_TONE[key]) for key, label in RECORD_HEALTH_LABELS.items()}
+MAP_SORTS = ("order", "review", "identity", "coverage", "length")
+# "Needs review first" puts the records to act on at the top.
+HEALTH_ORDER = ("failed", "needs_review", "no_genes", "partial", "passed", "empty")
+
+
+def _sorted_records(
+    record_ids: List[str], sort: str, gene: Optional[str], features_of: Dict[str, List[LiftedFeature]], health: Dict[str, str],
+) -> List[str]:
+    """Matrix rows in the chosen order. Metric sorts put the lowest value first
+    (that gene's when a gene column is open, else each record's lowest) and
+    records without a value last; ties keep the run order."""
+    if sort == "review":
+        rank = {key: index for index, key in enumerate(HEALTH_ORDER)}
+        return sorted(record_ids, key=lambda q: rank.get(health[q], len(rank)))
+    if sort in genome_map.SORT_METRICS:
+        values = {q: genome_map.record_metric(features_of[q], sort, gene) for q in record_ids}
+        return sorted(record_ids, key=lambda q: (values[q] is None, values[q] or 0.0))
+    return list(record_ids)
 
 
 def _gene_labeler(ref_name_map: Optional[Dict[str, str]]):
@@ -876,6 +757,14 @@ def _render_map_view(display_results: Results, error_map: Dict[str, str], ref_na
                 key="map_health",
                 label_visibility="collapsed",
             )
+            sort = st.selectbox(
+                _t("map_sort"),
+                list(MAP_SORTS),
+                format_func=lambda key: _t(f"map_sort_{key}"),
+                key="map_sort",
+                label_visibility="collapsed",
+                width=250,
+            )
             search = st.text_input(
                 _t("search_record"),
                 placeholder=_t("search_record"),
@@ -883,10 +772,31 @@ def _render_map_view(display_results: Results, error_map: Dict[str, str], ref_na
                 key="map_search",
                 label_visibility="collapsed",
             ).strip().lower()
-        visible = [
-            query_id for query_id in record_ids
-            if (show == "all" or health[query_id] == show) and (not search or search in query_id.lower())
-        ]
+        focus = st.session_state.get("map_focus")
+        if focus and not any(g[0] == focus for g in ref["genes"]):
+            focus = None
+        sort_gene = focus if sort in genome_map.SORT_METRICS else None
+        # Building ~100k cells takes a moment, so the rows are kept until the run,
+        # a choice, the filter, the search or the sort changes; a click only
+        # changes the selection, which is added on top.
+        cache_key = (
+            id(display_results), st.session_state.get("annotation_choice_version", 0), show, search, sort, sort_gene,
+        )
+        cached = st.session_state.get("map_matrix_cache")
+        if cached and cached[0] == cache_key:
+            visible, payload = cached[1], cached[2]
+        else:
+            visible = _sorted_records(
+                [
+                    query_id for query_id in record_ids
+                    if (show == "all" or health[query_id] == show) and (not search or search in query_id.lower())
+                ],
+                sort, sort_gene, features_of, health,
+            )
+            payload = genome_map.matrix_payload(
+                ref, [(query_id, features_of[query_id], health[query_id]) for query_id in visible], HEALTH_META,
+            )
+            st.session_state.map_matrix_cache = (cache_key, visible, payload)
         with title_slot:
             _render_section_title(
                 _t("map_matrix_title"),
@@ -895,23 +805,20 @@ def _render_map_view(display_results: Results, error_map: Dict[str, str], ref_na
         if st.session_state.get("map_record") not in features_of:
             st.session_state.map_record = (visible or record_ids or [None])[0]
         record_id = st.session_state.map_record
-        if len(visible) > genome_map.MATRIX_ROW_LIMIT:
-            st.caption(_t("map_matrix_limit", limit=f"{genome_map.MATRIX_ROW_LIMIT:,}", total=f"{len(visible):,}"))
+        if sort in genome_map.SORT_METRICS:
+            metric = _t(f"map_metric_{sort}")
+            st.caption(
+                _t("map_sorted_gene", gene=label_of(sort_gene) if label_of else sort_gene, metric=metric)
+                if sort_gene else _t("map_sorted_lowest", metric=metric)
+            )
         genome_map.render(
-            genome_map.matrix_payload(
-                ref,
-                [(query_id, features_of[query_id], health[query_id]) for query_id in visible],
-                HEALTH_META,
-                selected=record_id,
-                focus=st.session_state.get("map_focus"),
-            ),
+            {**payload, "selected": record_id, "focus": focus},
             MAP_MATRIX_KEY,
             on_select_change=_on_matrix_select,
             on_focus_change=_on_matrix_focus,
         )
         st.caption(_t("map_matrix_legend"))
-        focus = st.session_state.get("map_focus")
-        if focus and any(g[0] == focus for g in ref["genes"]):
+        if focus:
             _render_gene_focus(focus, display_results, ref, label_of)
 
     if record_id is None:
@@ -963,7 +870,7 @@ def _render_map_view(display_results: Results, error_map: Dict[str, str], ref_na
         if lf is None:
             _render_record_summary(record_id, features, length, health[record_id], ref, error_map.get(record_id))
         else:
-            _render_feature_detail(record_id, lf, label_of(lf.name) if label_of else lf.name, on_map=True)
+            _render_feature_detail(record_id, lf, label_of(lf.name) if label_of else lf.name)
 
 
 def _render_approval_editor(rows: List[FeatureRow]) -> None:
@@ -1414,15 +1321,12 @@ def stage_results():
             st.dataframe(pd.DataFrame(run_errors), width="stretch", hide_index=True)
 
     # Stateful tabs: only the open tab's content runs. The genome map opens first.
-    map_tab, features_tab, export_tab = st.tabs(
-        [_t("view_map"), _t("view_features"), _t("view_export")],
+    map_tab, export_tab = st.tabs(
+        [_t("view_map"), _t("view_export")],
         key="results_view",
         on_change="rerun",
     )
-    if features_tab.open:
-        with features_tab:
-            _render_features_view(rows)
-    elif export_tab.open:
+    if export_tab.open:
         with export_tab:
             _render_export_view(rows, df, ref_name_map)
     else:

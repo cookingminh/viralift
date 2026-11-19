@@ -147,7 +147,7 @@ def _replaced(prrs_run):
 
 
 @requires_sample_data
-@pytest.mark.parametrize("view", ["Genome map", "Features", "Export"])
+@pytest.mark.parametrize("view", ["Genome map", "Export"])
 def test_results_show_the_annotation_check(prrs_run, view):
     state, _, _ = _replaced(prrs_run)
     at = _app(stage="results", results_view=view, **state)
@@ -185,16 +185,16 @@ def test_detail_panel_switches_between_annotation_and_tblastn(prrs_run):
 
 
 @requires_sample_data
-def test_results_have_no_records_tab(prrs_run):
-    # The genome map's matrix took over the record table.
+def test_results_are_the_map_and_export(prrs_run):
+    # The genome map's matrix and detail panel took over the record and feature tables.
     at = _app(stage="results", **prrs_run)
     at.run()
     _assert_clean(at)
-    assert [tab.label for tab in at.tabs] == ["Genome map", "Features", "Export"]
+    assert [tab.label for tab in at.tabs] == ["Genome map", "Export"]
 
 
 @requires_sample_data
-def test_detail_panel_draws_the_gene_and_links_to_the_map(prrs_run):
+def test_detail_panel_draws_the_gene(prrs_run):
     record_id, features = next((rid, fs) for rid, fs in prrs_run["all_results"] if fs and fs[0].method == "tblastn")
     gene = next(f for f in features if f.query_start is not None)
     at = AppTest.from_function(_detail_script, default_timeout=180)
@@ -206,10 +206,17 @@ def test_detail_panel_draws_the_gene_and_links_to_the_map(prrs_run):
     assert "vl-place" in page and "of the reference gene" in page and "vl-meter" in page
     assert "Raw name" not in page  # no empty "—" fields any more
 
-    at.button(key=f"show_on_map_{record_id}_{gene.name}").click().run()
+
+@requires_sample_data
+@pytest.mark.parametrize("sort", ["order", "review", "identity", "coverage", "length"])
+def test_matrix_sorts(prrs_run, sort):
+    at = _app(stage="results", map_sort=sort, **prrs_run)
+    at.run()
     _assert_clean(at)
-    assert (at.session_state.map_record, at.session_state.map_gene) == (record_id, gene.name)
-    assert at.session_state.results_view == "Genome map"
+    order = at.session_state["map_matrix_cache"][1]
+    assert sorted(order) == sorted(record_id for record_id, _ in prrs_run["all_results"])
+    if sort == "order":
+        assert order == [record_id for record_id, _ in prrs_run["all_results"]]
 
 
 @requires_sample_data
@@ -259,7 +266,7 @@ def test_guide_opens_on_every_workspace(mode):
 
 
 @requires_sample_data
-@pytest.mark.parametrize("view", ["Genome map", "Features", "Export"])
+@pytest.mark.parametrize("view", ["Genome map", "Export"])
 def test_results_views_render(prrs_run, view):
     at = _app(stage="results", results_view=view, **prrs_run)
     at.run()
@@ -500,3 +507,26 @@ def test_review_rows_draw_where_the_name_sits(prrs_run, tmp_path):
     evidence = context["evidence"]["ORF5a"]
     # ORF5a (13,778-13,933) lies inside ORF5 on the record.
     assert (evidence["verdict"], evidence["gene"], evidence["start"]) == ("inside", "ORF5", 13778)
+
+
+def test_sort_puts_review_first_and_lowest_first():
+    from ui.stages.results import _sorted_records
+
+    def row(identity):
+        return [dataclasses.replace(_plain_feature(), identity=identity)]
+
+    features_of = {"a": row(90.0), "b": row(40.0), "c": [], "d": row(70.0)}
+    health = {"a": "passed", "b": "needs_review", "c": "failed", "d": "partial"}
+    ids = list(features_of)
+    assert _sorted_records(ids, "order", None, features_of, health) == ["a", "b", "c", "d"]
+    assert _sorted_records(ids, "review", None, features_of, health) == ["c", "b", "d", "a"]
+    # Lowest identity first; a record without a value goes last.
+    assert _sorted_records(ids, "identity", None, features_of, health) == ["b", "d", "a", "c"]
+
+
+def _plain_feature():
+    from app.src.lifting.base import LiftedFeature
+    return LiftedFeature(
+        name="A", source_name=None, ref_start=101, ref_end=400, strand="+", query_start=101, query_end=400,
+        sequence="ATG", coverage=1.0, status="ok", method="tblastn",
+    )
