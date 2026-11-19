@@ -472,10 +472,11 @@ Run health tiles and the status bar, then four stateful tabs: **Genome map** (op
 - For CDS the lanes are reading frames +1/+2/+3, so overlapping ORFs separate as in the genome.
 - A gene that passed but is under 80% of its reference gene's length gets an orange corner (`is_much_shorter()`); when a boundary rescue moved an end by more than 30 bp, the raw tblastn hit is drawn under the record.
 - Clicks come back as component events (`select`, `focus`, `pick`); the handlers only set `map_record` / `map_gene` / `map_focus` / `fasta_genes`, and the selected gene opens the same detail panel as the Features tab.
+- The matrix rows scroll in their own box (max 520 px) under a sticky header (reference bar, links, gene names); a record selected from outside the matrix (Previous / Next, Worth a look) is scrolled into view.
 
 Export:
 - **TSV** — with canonical names or raw names
-- **FASTA** — genes picked on the reference bar or in the multiselect (both edit `fasta_genes`), quality filters (min coverage/identity, include/exclude rescued), one file per gene or combined
+- **FASTA** — genes picked on the reference bar or its chips, with Select all / Unselect all (`fasta_genes`, plain session state, so the choice survives switching tabs), quality filters (min coverage/identity, include/exclude rescued), one file per gene or combined
 
 ---
 
