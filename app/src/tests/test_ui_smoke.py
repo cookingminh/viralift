@@ -382,7 +382,33 @@ def test_gene_focus_exports_that_gene(prrs_run):
     at.button(key="map_export_gene").click().run()
     _assert_clean(at)
     assert at.session_state.results_view == "Export"
-    assert at.multiselect(key="fasta_genes").value == ["ORF5"]
+    assert at.session_state.fasta_genes == ["ORF5"]
+
+
+@requires_sample_data
+def test_export_picks_genes_on_the_reference_only(prrs_run):
+    at = _app(stage="results", results_view="Export", **prrs_run)
+    at.run()
+    _assert_clean(at)
+    genes = sorted({f["name"] for f in prrs_run["ref_features"]})
+    assert at.session_state.fasta_genes == genes  # everything picked to start with
+    assert not [m for m in at.multiselect if m.label == "Genes to extract"]
+
+    at.button(key="fasta_pick_none").click().run()
+    _assert_clean(at)
+    assert at.session_state.fasta_genes == []
+    assert next(b for b in at.button if b.label == "Generate FASTA").disabled
+
+    at.button(key="fasta_pick_all").click().run()
+    _assert_clean(at)
+    assert at.session_state.fasta_genes == genes
+    # The choice is not a widget's, so it survives a visit to another tab.
+    at.button(key="fasta_pick_none").click().run()
+    at.session_state["results_view"] = "Genome map"
+    at.run()
+    at.session_state["results_view"] = "Export"
+    at.run()
+    assert at.session_state.fasta_genes == []
 
 
 def _map_event_script():

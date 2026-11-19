@@ -200,7 +200,8 @@ PAGE_GUIDES: Dict[str, Dict[str, object]] = {
             ("Export tab", (
                 "TSV with every feature (display or raw source names), and FASTA per gene or combined, "
                 "filtered by status, coverage and identity. Pick the genes by clicking them on the "
-                "reference bar or in the list. Review cases are left out unless you approve them. "
+                "reference bar or in the list under it; **Select all** / **Unselect all** set them all "
+                "at once. Review cases are left out unless you approve them. "
                 "**Sequence names** builds each FASTA name from fields you pick, e.g. "
                 "`AJ294911.1_O/HKN/21/70_porcine` (Accession_Isolate_Host); the choice is remembered."
             )),

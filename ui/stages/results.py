@@ -752,6 +752,14 @@ def _on_pick() -> None:
     st.session_state.fasta_genes = [gene for gene in _export_gene_names() if gene in chosen]
 
 
+def _pick_all_genes() -> None:
+    st.session_state.fasta_genes = _export_gene_names()
+
+
+def _pick_no_genes() -> None:
+    st.session_state.fasta_genes = []
+
+
 def _open_on_map(record_id: str, gene: Optional[str] = None) -> None:
     st.session_state.map_record = record_id
     if gene:
@@ -1141,15 +1149,32 @@ def _render_export_view(
             if f.get("name")
         })
 
-        # The picker on the reference and the multiselect share st.session_state.fasta_genes.
+        # Genes are picked on the reference bar or its chips only. The choice is
+        # plain session state (no widget owns it), so it survives switching tabs.
         current = st.session_state.get("fasta_genes")
         st.session_state.fasta_genes = (
             list(ref_gene_names) if current is None else [g for g in current if g in ref_gene_names]
         )
+        selected_genes = list(st.session_state.fasta_genes)
         label_of = _gene_labeler(ref_name_map)
         ref = _map_reference(ref_name_map)
-        chosen = set(st.session_state.fasta_genes)
+        chosen = set(selected_genes)
         exportable = Counter(lf.name for _, lf, _ in rows if lf.sequence and lf.status in GOOD_STATUSES)
+
+        with st.container(horizontal=True, horizontal_alignment="distribute", vertical_alignment="center"):
+            st.markdown(
+                f"**{_t('genes_to_extract')}** · "
+                + _t("genes_picked", count=len(selected_genes), total=len(ref_gene_names))
+            )
+            with st.container(horizontal=True, width="content", gap="small"):
+                st.button(
+                    _t("pick_all"), key="fasta_pick_all", icon=":material/select_all:",
+                    on_click=_pick_all_genes, disabled=len(selected_genes) == len(ref_gene_names),
+                )
+                st.button(
+                    _t("pick_none"), key="fasta_pick_none", icon=":material/deselect:",
+                    on_click=_pick_no_genes, disabled=not selected_genes,
+                )
         genome_map.render(
             genome_map.picker_payload(
                 ref,
@@ -1159,14 +1184,9 @@ def _render_export_view(
             MAP_PICKER_KEY,
             on_pick_change=_on_pick,
         )
+        st.caption(_t("pick_hint") if selected_genes else _t("pick_hint_empty"))
 
-        col_select, col_format = st.columns([3, 2])
-        selected_genes = col_select.multiselect(
-            _t("genes_to_extract"),
-            options=ref_gene_names,
-            key="fasta_genes",
-        )
-        fasta_mode = col_format.segmented_control(
+        fasta_mode = st.segmented_control(
             _t("output_format"),
             [_t("one_fasta"), _t("all_fasta")],
             default=_t("one_fasta"),
