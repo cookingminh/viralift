@@ -129,3 +129,14 @@ def test_component_assets_ship_with_the_ui():
     for event in ('"select"', '"focus"', '"pick"'):
         assert event in js
     assert (Path(genome_map.__file__).parent / "genome_map.css").exists()
+
+
+def test_matrix_rows_scroll_under_a_sticky_header():
+    # Thousands of records must not push the record map far down the page.
+    css = (Path(genome_map.__file__).parent / "genome_map.css").read_text(encoding="utf-8")
+    js = (Path(genome_map.__file__).parent / "genome_map.js").read_text(encoding="utf-8")
+    matrix = css.split(".gm-matrix {", 1)[1].split("}", 1)[0]
+    header = css.split(".gm-mhead {", 1)[1].split("}", 1)[0]
+    assert "max-height" in matrix and "overflow: auto" in matrix
+    assert "position: sticky" in header and "top: 0" in header
+    assert 'class="gm-mhead"' in js and 'class="gm-mrows"' in js

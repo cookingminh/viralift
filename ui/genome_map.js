@@ -64,6 +64,11 @@ export default function (component) {
     root.innerHTML =
       '<div class="gm-bar" hidden></div>' +
       '<div class="gm-scroll"><svg class="gm-svg" xmlns="http://www.w3.org/2000/svg" role="img"></svg></div>' +
+      // The matrix scrolls on its own; its header (reference bar, links, gene names) sticks on top.
+      '<div class="gm-matrix" hidden>' +
+      '<svg class="gm-mhead" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Reference genes"></svg>' +
+      '<svg class="gm-mrows" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Gene status per record"></svg>' +
+      "</div>" +
       '<div class="gm-foot" hidden></div>' +
       '<div class="gm-tip" hidden></div>';
     parentElement.appendChild(root);
@@ -87,22 +92,30 @@ function draw(root) {
   const svg = root.querySelector(".gm-svg");
   const bar = root.querySelector(".gm-bar");
   const foot = root.querySelector(".gm-foot");
+  const matrix = root.querySelector(".gm-matrix");
   bar.hidden = true;
   foot.hidden = true;
+  matrix.hidden = d.view !== "matrix";
+  root.querySelector(".gm-scroll").hidden = d.view === "matrix";
   if (!d.view) { svg.innerHTML = ""; return; }
+  if (d.view === "matrix") { drawMatrix(root, matrix, d); return; }
   const W = Math.max(d.view === "evidence" ? 360 : 560, Math.floor(root.clientWidth) || 800);
-  if (d.view === "matrix") drawMatrix(root, svg, W, d);
-  else if (d.view === "tracks") drawTracks(root, svg, bar, W, d);
+  if (d.view === "tracks") drawTracks(root, svg, bar, W, d);
   else if (d.view === "reference") drawReference(svg, W, d, null);
   else if (d.view === "picker") drawPicker(svg, foot, W, d);
   else if (d.view === "evidence") drawEvidence(svg, W, d);
-  svg.setAttribute("aria-label", { matrix: "Gene status per record", tracks: "Reference and record gene map", reference: "Reference gene map", picker: "Pick genes to export", evidence: "Where the name sits on the record" }[d.view] || "Genome map");
+  svg.setAttribute("aria-label", { tracks: "Reference and record gene map", reference: "Reference gene map", picker: "Pick genes to export", evidence: "Where the name sits on the record" }[d.view] || "Genome map");
 }
 
 const statusOf = (d, i) => (d.statuses && d.statuses[i]) || ["", "", "warn"];
 
 // ── matrix ────────────────────────────────────────────────────────────
-function drawMatrix(root, svg, W, d) {
+// Two SVGs in one scroll box: the header (ruler, reference bar, links, gene
+// names) is position: sticky, the rows scroll under it. Width comes from the
+// box's client width so a classic scrollbar never forces a sideways scroll.
+function drawMatrix(root, box, d) {
+  const head = box.querySelector(".gm-mhead"), body = box.querySelector(".gm-mrows");
+  const W = Math.max(560, Math.floor(box.clientWidth) || 800);
   const ref = d.ref, refLen = ref.length;
   const L = 118, R = 54, x0 = L, x1 = W - R;
   const sx = (v) => x0 + ((v - 1) / Math.max(1, refLen - 1)) * (x1 - x0);
@@ -117,7 +130,7 @@ function drawMatrix(root, svg, W, d) {
   const labelOf = Object.fromEntries(genes.map((g) => [g.name, g.label]));
   const colW = (x1 - x0) / cols.length;
   const cx = (i) => x0 + i * colW + colW / 2;
-  const headY = refBottom + 46, rowsTop = headY + 8, rowH = 24;
+  const headY = refBottom + 46, headH = headY + 8, rowsTop = 2, rowH = 24;
   const rows = d.rows || [];
   const H = rowsTop + Math.max(rows.length, 1) * rowH + 8;
   const step = niceStep(refLen, x1 - x0, 110);
@@ -126,7 +139,9 @@ function drawMatrix(root, svg, W, d) {
   s += `<line class="backbone" x1="${r1(sx(1))}" x2="${r1(sx(refLen))}" y1="${refTop - 6}" y2="${refTop - 6}"/>`;
   s += `<text class="track-label" x="8" y="${refTop + 4}">Reference</text><text class="track-sub" x="8" y="${refTop + 17}">${esc(ref.id)}</text>`;
   const fi = d.focus != null && d.focus in colIndex ? colIndex[d.focus] : -1;
-  if (fi >= 0) s += `<rect class="col-band" x="${r1(x0 + fi * colW + 1)}" y="${headY - 15}" width="${r1(colW - 2)}" height="${H - headY + 12}" rx="6"/>`;
+  // The focus band runs through both SVGs; each clips the rounded end it does not own.
+  const band = (y, h) => (fi >= 0 ? `<rect class="col-band" x="${r1(x0 + fi * colW + 1)}" y="${y}" width="${r1(colW - 2)}" height="${h}" rx="6"/>` : "");
+  s += band(headY - 15, headH - headY + 30);
   const ym = (refBottom + headY - 14) / 2;
   items.forEach((it) => {
     const g = it.g, i = colIndex[g.name];
@@ -143,6 +158,10 @@ function drawMatrix(root, svg, W, d) {
     const text = extra ? "extra" : labelOf[c] || c;
     s += `<text class="col-label${d.focus === c ? " is-focus" : ""}${extra ? " is-extra" : ""}" x="${r1(cx(i))}" y="${headY}" text-anchor="middle"${extra ? "" : ` data-focus="${esc(c)}" tabindex="0" role="button" aria-label="${esc(text)} in every record"`}>${esc(text)}</text>`;
   });
+  svgSize(head, W, headH);
+  head.innerHTML = s;
+
+  s = band(-12, H + 6);
   rows.forEach((row, ri) => {
     const [id, healthKey, cells, extras, passed, total] = row;
     const y = rowsTop + ri * rowH, sel = id === d.selected;
@@ -164,8 +183,24 @@ function drawMatrix(root, svg, W, d) {
     s += "</g>";
   });
   if (!rows.length) s += `<text class="empty" x="${W / 2}" y="${rowsTop + 18}" text-anchor="middle">No records match this filter.</text>`;
-  svgSize(svg, W, H);
-  svg.innerHTML = s;
+  svgSize(body, W, H);
+  body.innerHTML = s;
+
+  // A new set of rows (filter, search, new run) starts at the top. A selection
+  // made outside the matrix (Previous / Next, Worth a look) scrolls its row
+  // into view; a click inside the matrix is already in view and moves nothing.
+  const gm = root.gm, signature = `${rows.length}|${rows.length ? rows[0][0] : ""}`;
+  if (gm.matrixRows !== signature) { box.scrollTop = 0; gm.matrixRows = signature; gm.matrixSelected = undefined; }
+  if (d.selected !== gm.matrixSelected) {
+    gm.matrixSelected = d.selected;
+    const ri = rows.findIndex((row) => row[0] === d.selected);
+    if (ri >= 0) {
+      const top = headH + rowsTop + ri * rowH, view = box.clientHeight;
+      if (top < box.scrollTop + headH || top + rowH > box.scrollTop + view) {
+        box.scrollTop = Math.max(0, top - headH - (view - headH - rowH) / 2);
+      }
+    }
+  }
 }
 
 // ── tracks ────────────────────────────────────────────────────────────
@@ -465,6 +500,7 @@ function activate(root, el) {
 
 function wire(root) {
   const svg = root.querySelector(".gm-svg");
+  root.querySelector(".gm-matrix").addEventListener("scroll", () => { root.querySelector(".gm-tip").hidden = true; }, { passive: true });
   root.addEventListener("click", (e) => {
     if (root.gm.data.view === "tracks" && e.target.closest(".gm-svg")) return; // handled on pointerup
     const el = e.target.closest("[data-align],[data-zoom],[data-pick],[data-focus],[data-rec]");
