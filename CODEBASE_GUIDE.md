@@ -50,6 +50,7 @@ app/src/
     └── validator.py            check / rescue start and stop codons
 ui/
 ├── streamlit_app.py            top-level state machine / router
+├── genome_map.py               genome map data + mount (one st.components.v2 component; drawing in genome_map.js / .css)
 └── stages/
     ├── upload.py, resolve.py, running.py, results.py   the 4 core stages described below
     ├── bootstrap_alias.py      alternate stage for a virus with no alias config yet (see "LLM-Assisted Alias Review")
@@ -422,6 +423,8 @@ PRRSV canonical naming convention: structural proteins use **ORF names** (`ORF2a
 
 User uploads ref + query `.gb` files and sets optional thresholds (`min_coverage`, `min_identity`, `evalue`, `rescue_window`).
 
+As soon as a reference is chosen, **What this reference will look for** runs `prepare_reference_features()` on it (cached per file) and draws its genes with the genome map, with the alias config that names them and how many query records are partial (lengths read from the LOCUS lines, the query is not parsed). A reference that cannot be used shows its error here, before the run.
+
 On submit:
 1. Load and parse both files
 2. Run `prepare_reference_features()` for the ref → returns `(ref_features, ref_feature_type, alias_config_path, virus_name, alias_lookup)`
@@ -444,6 +447,8 @@ Shown when there are unrecognised names.
 
 On Continue: all candidates are expanded into the session resolver dict, which is merged into the base alias lookup via `_build_effective_lookup()` for the current run.
 
+Each row also draws its position evidence: the reference genes as tblastn lifted them onto the record the name was checked on (kept from the position check, `review_context["lifted"]`), with the annotated span under them.
+
 Optional **"Ask LLM to suggest mappings"** button pre-fills the dropdown/canonical for unresolved rows using `review_unresolved_names()` — see "LLM-Assisted Alias Review" below. Advisory only; the user still confirms every row before Continue.
 
 ### Stage 3 — Running (transient)
@@ -460,11 +465,17 @@ else:
 
 ### Stage 4 — Results
 
-Displays status badges, per-record expandable tables, and export options.
+Run health tiles and the status bar, then four stateful tabs: **Genome map** (opens first), **Features**, **Records**, **Export**.
+
+**Genome map** (`ui/genome_map.py`): a record × gene matrix whose columns are linked to the genes' places on the reference bar, then the selected record drawn under the reference with a ribbon from each reference gene to where it landed. Display only, nothing is recomputed:
+- *Aligned to reference* shifts the record by the median offset of its passing genes (`record_placement()`); a record that is the reverse complement of the reference is drawn mirrored.
+- For CDS the lanes are reading frames +1/+2/+3, so overlapping ORFs separate as in the genome.
+- A gene that passed but is under 80% of its reference gene's length gets an orange corner (`is_much_shorter()`); when a boundary rescue moved an end by more than 30 bp, the raw tblastn hit is drawn under the record.
+- Clicks come back as component events (`select`, `focus`, `pick`); the handlers only set `map_record` / `map_gene` / `map_focus` / `fasta_genes`, and the selected gene opens the same detail panel as the Features tab.
 
 Export:
 - **TSV** — with canonical names or raw names
-- **FASTA** — gene multiselect, quality filters (min coverage/identity, include/exclude rescued), one file per gene or combined
+- **FASTA** — genes picked on the reference bar or in the multiselect (both edit `fasta_genes`), quality filters (min coverage/identity, include/exclude rescued), one file per gene or combined
 
 ---
 
