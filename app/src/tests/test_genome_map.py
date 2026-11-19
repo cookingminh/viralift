@@ -5,10 +5,12 @@ from pathlib import Path
 from app.src.lifting.base import LiftedFeature
 from ui import genome_map
 from ui.genome_map import (
-    MATRIX_ROW_LIMIT,
+    CELL_CODES,
+    NO_CELL,
     evidence_payload,
     is_much_shorter,
     matrix_payload,
+    record_metric,
     record_placement,
     reference_payload,
     reference_strands,
@@ -75,7 +77,7 @@ def test_much_shorter_flags_a_passing_gene_cut_to_half():
     assert not is_much_shorter(lf("ORF5a", None, None, 13778, 13933, status="not_in_reference", method="direct"))
 
 
-def test_matrix_rows_cells_and_extras():
+def test_matrix_rows_are_compact():
     features = [
         lf("A", 101, 400, 101, 400, identity=97.25),
         lf("B", 501, 900, None, None, status="not_in_sequence"),
@@ -83,23 +85,36 @@ def test_matrix_rows_cells_and_extras():
     ]
     payload = matrix_payload(REF, [("Q.1", features, "partial")], {"partial": ("Partial", "info")}, selected="Q.1")
     assert payload["columns"] == ["A", "B"]
-    record_id, health, cells, extras, passed, total = payload["rows"][0]
-    assert (record_id, health) == ("Q.1", "partial")
     statuses = [row[0] for row in payload["statuses"]]
-    assert cells[0] == [statuses.index("ok"), 101, 400, 1.0, 97.2, 0]
-    assert statuses[cells[1][0]] == "not_in_sequence"
-    assert extras == [["3B1", statuses.index("not_in_reference"), 950, 990]]
+    record_id, health, codes, extras, passed, total = payload["rows"][0]
+    assert (record_id, health) == ("Q.1", "partial")
+    # One character per gene: the status's index in the payload's status table.
+    assert [statuses[CELL_CODES.index(code)] for code in codes] == ["ok", "not_in_sequence"]
+    assert extras == [["3B1", statuses.index("not_in_reference")]]
     # A gene outside the record is neither passed nor counted.
     assert (passed, total) == (1, 1)
     assert payload["health"] == {"partial": ["Partial", "info"]}
 
 
-def test_matrix_marks_a_missing_gene_and_caps_the_rows():
-    rows = [(f"Q.{i}", [lf("A", 101, 400, 101, 400)], "passed") for i in range(MATRIX_ROW_LIMIT + 5)]
+def test_matrix_sends_every_record_and_marks_short_and_missing_genes():
+    rows = [(f"Q.{i}", [lf("A", 101, 400, 101, 400)], "passed") for i in range(9000)]
+    rows.append(("CUT", [lf("A", 101, 400, 101, 200, status="ok_rescued")], "passed"))
     payload = matrix_payload(REF, rows, {})
-    assert len(payload["rows"]) == MATRIX_ROW_LIMIT
-    assert payload["total"] == MATRIX_ROW_LIMIT + 5
-    assert payload["rows"][0][2][1] is None  # no row for B
+    assert len(payload["rows"]) == 9001
+    assert payload["rows"][0][2].endswith(NO_CELL)  # no row for B
+    assert len(payload["rows"][0]) == 6  # no short genes: no seventh item
+    assert payload["rows"][-1][6] == [0]  # A is a third of its reference gene
+
+
+def test_records_sort_by_their_lowest_value_or_one_gene():
+    weak_b = [lf("A", 101, 400, 101, 400, identity=99.0), lf("B", 501, 900, 501, 900, identity=40.0)]
+    weak_a = [lf("A", 101, 400, 101, 400, identity=60.0), lf("B", 501, 900, 501, 900, identity=95.0)]
+    assert record_metric(weak_b, "identity") == 40.0
+    assert record_metric(weak_b, "identity", gene="A") == 99.0
+    assert record_metric(weak_a, "identity", gene="A") == 60.0
+    assert record_metric(weak_a, "length", gene="B") == 1.0
+    assert record_metric([lf("A", 101, 400, None, None, status="no_hit")], "coverage") is None
+    assert record_metric(weak_b, "identity", gene="C") is None
 
 
 def test_tracks_keep_the_raw_hit_only_when_rescue_moved_it():

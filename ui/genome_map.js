@@ -108,6 +108,8 @@ function draw(root) {
 }
 
 const statusOf = (d, i) => (d.statuses && d.statuses[i]) || ["", "", "warn"];
+// Same alphabet as CELL_CODES in ui/genome_map.py.
+const CELL_CODES = "0123456789abcdefghijklmnopqrstuvwxyz";
 
 // ── matrix ────────────────────────────────────────────────────────────
 // Two SVGs in one scroll box: the header (ruler, reference bar, links, gene
@@ -161,35 +163,14 @@ function drawMatrix(root, box, d) {
   svgSize(head, W, headH);
   head.innerHTML = s;
 
-  s = band(-12, H + 6);
-  rows.forEach((row, ri) => {
-    const [id, healthKey, cells, extras, passed, total] = row;
-    const y = rowsTop + ri * rowH, sel = id === d.selected;
-    const [hLabel, hTone] = (d.health && d.health[healthKey]) || [healthKey, "neutral"];
-    s += `<g class="ov-row${sel ? " is-selected" : ""}" data-rec="${esc(id)}">`;
-    s += `<rect class="row-band" x="2" y="${y}" width="${W - 4}" height="${rowH}" rx="6"/>`;
-    s += `<circle class="dot tone-${esc(hTone)}" cx="11" cy="${y + rowH / 2}" r="3.5"><title>${esc(hLabel)}</title></circle>`;
-    s += `<text class="row-label" x="21" y="${y + rowH / 2 + 4}" tabindex="0" role="button" aria-label="Open ${esc(id)}">${esc(id)}</text>`;
-    cells.forEach((cell, i) => {
-      const x = x0 + i * colW + 3, w = Math.max(4, colW - 6);
-      if (!cell) { s += `<rect class="cell c-none" x="${r1(x)}" y="${y + 4}" width="${r1(w)}" height="${rowH - 8}" rx="3"/>`; return; }
-      const [key, , tone] = statusOf(d, cell[0]);
-      const cls = key === d.absent ? "absent" : tone;
-      s += `<rect class="cell c-${esc(cls)}" x="${r1(x)}" y="${y + 4}" width="${r1(w)}" height="${rowH - 8}" rx="3" data-gene="${esc(d.columns[i])}" data-tip="cell|${ri}|${i}"/>`;
-      if (cell[5]) s += `<path class="short-flag" d="M${r1(x + w - 7)},${y + 4}h7v7z"/>`;
-    });
-    if (extras.length) s += `<text class="extra-count" x="${r1(cx(cols.length - 1))}" y="${y + rowH / 2 + 4}" text-anchor="middle" data-tip="extra|${ri}">+${extras.length}</text>`;
-    s += `<text class="row-stat" x="${W - 10}" y="${y + rowH / 2 + 4}" text-anchor="end">${passed}/${total}</text>`;
-    s += "</g>";
-  });
-  if (!rows.length) s += `<text class="empty" x="${W / 2}" y="${rowsTop + 18}" text-anchor="middle">No records match this filter.</text>`;
   svgSize(body, W, H);
-  body.innerHTML = s;
+  const gm = root.gm;
+  gm.matrix = { W, x0, colW, cx, rowH, rowsTop, headH, H, band, ncols: cols.length };
 
-  // A new set of rows (filter, search, new run) starts at the top. A selection
-  // made outside the matrix (Previous / Next, Worth a look) scrolls its row
-  // into view; a click inside the matrix is already in view and moves nothing.
-  const gm = root.gm, signature = `${rows.length}|${rows.length ? rows[0][0] : ""}`;
+  // A new set of rows (filter, search, sort, new run) starts at the top. A
+  // selection made outside the matrix (Previous / Next, Worth a look) scrolls
+  // its row into view; a click inside the matrix is already in view.
+  const signature = `${rows.length}|${rows.length ? rows[0][0] : ""}|${rows.length ? rows[rows.length - 1][0] : ""}`;
   if (gm.matrixRows !== signature) { box.scrollTop = 0; gm.matrixRows = signature; gm.matrixSelected = undefined; }
   if (d.selected !== gm.matrixSelected) {
     gm.matrixSelected = d.selected;
@@ -201,6 +182,47 @@ function drawMatrix(root, box, d) {
       }
     }
   }
+  gm.matrixWindow = null;
+  drawMatrixRows(root);
+}
+
+// Only the rows in view (plus a margin) are in the DOM, so a run of thousands
+// of records scrolls as lightly as a few dozen. Called again on scroll.
+const ROW_MARGIN = 12;
+function drawMatrixRows(root) {
+  const gm = root.gm, d = gm.data, g = gm.matrix;
+  if (!g || d.view !== "matrix") return;
+  const box = root.querySelector(".gm-matrix"), body = box.querySelector(".gm-mrows");
+  const rows = d.rows || [];
+  const from = Math.max(0, Math.floor((box.scrollTop - g.headH) / g.rowH) - ROW_MARGIN);
+  const to = Math.min(rows.length, Math.ceil((box.scrollTop + box.clientHeight) / g.rowH) + ROW_MARGIN);
+  if (gm.matrixWindow && gm.matrixWindow[0] === from && gm.matrixWindow[1] === to) return;
+  gm.matrixWindow = [from, to];
+  const { W, x0, colW, cx, rowH, rowsTop } = g;
+  const w = Math.max(4, colW - 6);
+  let s = g.band(-12, g.H + 6);
+  for (let ri = from; ri < to; ri++) {
+    const [id, healthKey, codes, extras, passed, total, short] = rows[ri];
+    const y = rowsTop + ri * rowH, sel = id === d.selected;
+    const [hLabel, hTone] = (d.health && d.health[healthKey]) || [healthKey, "neutral"];
+    s += `<g class="ov-row${sel ? " is-selected" : ""}" data-rec="${esc(id)}">`;
+    s += `<rect class="row-band" x="2" y="${y}" width="${W - 4}" height="${rowH}" rx="6"/>`;
+    s += `<circle class="dot tone-${esc(hTone)}" cx="11" cy="${y + rowH / 2}" r="3.5"><title>${esc(hLabel)}</title></circle>`;
+    s += `<text class="row-label" x="21" y="${y + rowH / 2 + 4}" tabindex="0" role="button" aria-label="Open ${esc(id)}">${esc(id)}</text>`;
+    for (let i = 0; i < codes.length; i++) {
+      const x = r1(x0 + i * colW + 3);
+      const si = CELL_CODES.indexOf(codes[i]);
+      if (si < 0) { s += `<rect class="cell c-none" x="${x}" y="${y + 4}" width="${r1(w)}" height="${rowH - 8}" rx="3"/>`; continue; }
+      const [key, , tone] = statusOf(d, si);
+      s += `<rect class="cell c-${esc(key === d.absent ? "absent" : tone)}" x="${x}" y="${y + 4}" width="${r1(w)}" height="${rowH - 8}" rx="3" data-gene="${esc(d.columns[i])}" data-tip="cell|${ri}|${i}"/>`;
+      if (short && short.includes(i)) s += `<path class="short-flag" d="M${r1(x + w - 7)},${y + 4}h7v7z"/>`;
+    }
+    if (extras.length) s += `<text class="extra-count" x="${r1(cx(g.ncols - 1))}" y="${y + rowH / 2 + 4}" text-anchor="middle" data-tip="extra|${ri}">+${extras.length}</text>`;
+    s += `<text class="row-stat" x="${W - 10}" y="${y + rowH / 2 + 4}" text-anchor="end">${passed}/${total}</text>`;
+    s += "</g>";
+  }
+  if (!rows.length) s += `<text class="empty" x="${W / 2}" y="${rowsTop + 18}" text-anchor="middle">No records match this filter.</text>`;
+  body.innerHTML = s;
 }
 
 // ── tracks ────────────────────────────────────────────────────────────
@@ -412,18 +434,18 @@ function tipHtml(root, spec) {
   if (parts[0] === "lift") return `<div class="t">${esc(parts[1])}</div>${row("lifted to", `${nf(+parts[2])}–${nf(+parts[3])}`)}`;
   if (parts[0] === "span") { const [a, b, label] = d.span; return `<div class="t">${esc(label)}</div>${row("annotated", `${nf(a)}–${nf(b)}`)}`; }
   if (parts[0] === "cell") {
-    const r = d.rows[+parts[1]], cell = r[2][+parts[2]], name = d.columns[+parts[2]];
+    const r = d.rows[+parts[1]], i = +parts[2], name = d.columns[i];
     const g = d.ref.genes.find((x) => x[0] === name);
-    return `<div class="t">${esc(g ? g[4] : name)} · <span class="sub">${esc(r[0])}</span></div><div>${badge(cell[0])}</div>` +
-      (cell[1] != null ? row("record", `${nf(cell[1])}–${nf(cell[2])} · ${nf(cell[2] - cell[1] + 1)} nt`) : "") +
+    const short = r[6] && r[6].includes(i);
+    return `<div class="t">${esc(g ? g[4] : name)} · <span class="sub">${esc(r[0])}</span></div><div>${badge(CELL_CODES.indexOf(r[2][i]))}</div>` +
       (g ? row("reference", `${nf(g[1])}–${nf(g[2])} · ${nf(g[2] - g[1] + 1)} nt`) : "") +
-      (cell[3] != null ? row("coverage", pct(cell[3], 1)) : "") + (cell[4] != null ? row("identity", cell[4].toFixed(1) + "%") : "") +
-      (cell[5] && cell[1] != null && g ? `<div class="warn">${pct((cell[2] - cell[1] + 1) / (g[2] - g[1] + 1))} of the reference length</div>` : "");
+      (short ? `<div class="warn">Much shorter than the reference gene</div>` : "") +
+      `<div class="sub">Click to open this gene</div>`;
   }
   if (parts[0] === "extra") {
     const r = d.rows[+parts[1]];
     return `<div class="t">${esc(r[0])}</div><div>Annotated names with no reference gene:</div>` +
-      r[3].map((x) => row(esc(x[0]), x[2] != null ? `${nf(x[2])}–${nf(x[3])}` : esc(statusOf(d, x[1])[1]))).join("");
+      r[3].map((x) => row(esc(x[0]), esc(statusOf(d, x[1])[1]))).join("");
   }
   const f = (root.gm.feats || [])[+parts[1]];
   if (!f) return "";
@@ -500,7 +522,10 @@ function activate(root, el) {
 
 function wire(root) {
   const svg = root.querySelector(".gm-svg");
-  root.querySelector(".gm-matrix").addEventListener("scroll", () => { root.querySelector(".gm-tip").hidden = true; }, { passive: true });
+  root.querySelector(".gm-matrix").addEventListener("scroll", () => {
+    root.querySelector(".gm-tip").hidden = true;
+    if (!root.gm.rowsFrame) root.gm.rowsFrame = requestAnimationFrame(() => { root.gm.rowsFrame = null; drawMatrixRows(root); });
+  }, { passive: true });
   root.addEventListener("click", (e) => {
     if (root.gm.data.view === "tracks" && e.target.closest(".gm-svg")) return; // handled on pointerup
     const el = e.target.closest("[data-align],[data-zoom],[data-pick],[data-focus],[data-rec]");

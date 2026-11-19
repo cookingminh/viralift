@@ -25,8 +25,13 @@ COMPONENT_NAME = "viralift_genome_map"
 # A passing gene shorter than this share of its reference gene is flagged on the
 # map. Display only: statuses and exports are left as the engine set them.
 SHORT_FRACTION = 0.8
-# Rows the record x gene matrix draws at once; the filters narrow the rest.
-MATRIX_ROW_LIMIT = 300
+# Matrix cells are sent as one character per gene: the index of the cell's
+# status in the payload's status table, or "-" when the record has no row for
+# that gene. The browser draws only the rows in view, so every record is sent.
+CELL_CODES = "0123456789abcdefghijklmnopqrstuvwxyz"
+NO_CELL = "-"
+# What the matrix can be sorted by (results.py offers them).
+SORT_METRICS = ("identity", "coverage", "length")
 # A raw tblastn hit is drawn when rescue moved an end by more than this (bp).
 RAW_HIT_MIN_SHIFT = 30
 
@@ -159,44 +164,56 @@ def _first_by_name(features: Sequence[LiftedFeature]) -> Dict[str, LiftedFeature
 
 # ── Results: record x gene matrix ────────────────────────────────────────
 
+def matrix_rows(
+    columns: Sequence[str],
+    records: Sequence[Tuple[str, List[LiftedFeature], str]],
+    statuses: "StatusTable",
+    absent_status: str = "not_in_sequence",
+) -> List[List]:
+    """One compact row per (record_id, features, health key):
+    [record id, health key, cell codes, extras, passed, in sequence, (short columns)].
+
+    Cell codes hold one character per column (CELL_CODES index into the status
+    table, NO_CELL when the record has no row for that gene). Extras are the
+    record's genes without a reference counterpart, [name, status index]. The
+    last item, only present when needed, lists the columns whose gene passed
+    but is much shorter than the reference gene.
+    """
+    rows = []
+    for record_id, features, health_key in records:
+        by_name = _first_by_name(features)
+        codes, short = [], []
+        for index, name in enumerate(columns):
+            lf = by_name.get(name)
+            if lf is None:
+                codes.append(NO_CELL)
+                continue
+            codes.append(CELL_CODES[statuses(lf.status)])
+            if is_much_shorter(lf):
+                short.append(index)
+        extras = [[lf.name, statuses(lf.status)] for lf in features if not _on_reference(lf)]
+        in_sequence = [lf for lf in by_name.values() if lf.status != absent_status]
+        passed = sum(1 for lf in in_sequence if lf.status in PASS_STATUSES)
+        row = [record_id, health_key, "".join(codes), extras, passed, len(in_sequence)]
+        if short:
+            row.append(short)
+        rows.append(row)
+    return rows
+
+
 def matrix_payload(
     ref: Dict,
     records: Sequence[Tuple[str, List[LiftedFeature], str]],
     health: Dict[str, Tuple[str, str]],
     selected: Optional[str] = None,
     focus: Optional[str] = None,
-    total: Optional[int] = None,
     absent_status: str = "not_in_sequence",
 ) -> Dict:
-    """One row per (record_id, features, health key), one cell per reference gene.
-
-    Cell: [status index, query start, query end, coverage, identity, much shorter]
-    or None when the record has no row for that gene. Extras are the record's
-    genes with no reference counterpart: [name, status index, start, end].
-    """
+    """Every record as one matrix row (see matrix_rows); the browser draws only
+    the rows in view."""
     statuses = StatusTable()
     columns = list(dict.fromkeys(gene[0] for gene in ref["genes"]))
-    rows = []
-    for record_id, features, health_key in records[:MATRIX_ROW_LIMIT]:
-        by_name = _first_by_name(features)
-        cells = []
-        for name in columns:
-            lf = by_name.get(name)
-            cells.append(None if lf is None else [
-                statuses(lf.status),
-                lf.query_start,
-                lf.query_end,
-                _round(lf.coverage, 3) if _located(lf) else None,
-                _round(lf.identity, 1),
-                1 if is_much_shorter(lf) else 0,
-            ])
-        extras = [
-            [lf.name, statuses(lf.status), lf.query_start, lf.query_end]
-            for lf in features if not _on_reference(lf)
-        ]
-        in_sequence = [lf for lf in by_name.values() if lf.status != absent_status]
-        passed = sum(1 for lf in in_sequence if lf.status in PASS_STATUSES)
-        rows.append([record_id, health_key, cells, extras, passed, len(in_sequence)])
+    rows = matrix_rows(columns, records, statuses, absent_status)
     return {
         "view": "matrix",
         "ref": ref,
@@ -206,9 +223,31 @@ def matrix_payload(
         "health": {key: list(value) for key, value in health.items()},
         "selected": selected,
         "focus": focus,
-        "total": total if total is not None else len(records),
         "absent": absent_status,
     }
+
+
+def gene_metric(lf: LiftedFeature, metric: str) -> Optional[float]:
+    """A placed gene's identity (%), coverage or length as a share of its
+    reference gene; None when the gene is not placed or has no such value."""
+    if not _located(lf):
+        return None
+    if metric == "identity":
+        return lf.identity
+    if metric == "coverage":
+        return lf.coverage
+    if metric == "length" and _on_reference(lf):
+        return (lf.query_end - lf.query_start + 1) / (lf.ref_end - lf.ref_start + 1)
+    return None
+
+
+def record_metric(features: Sequence[LiftedFeature], metric: str, gene: Optional[str] = None) -> Optional[float]:
+    """What a record sorts by: that gene's value when a gene is given, else the
+    lowest value over the record's reference genes."""
+    by_name = _first_by_name(features)
+    picked = [by_name[gene]] if gene in by_name else ([] if gene else list(by_name.values()))
+    values = [value for value in (gene_metric(lf, metric) for lf in picked) if value is not None]
+    return min(values) if values else None
 
 
 # ── Results: two-track record map ────────────────────────────────────────
