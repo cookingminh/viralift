@@ -465,7 +465,11 @@ else:
 
 ### Stage 4 — Results
 
-Run health tiles and the status bar, then four stateful tabs: **Genome map** (opens first), **Features**, **Records**, **Export**.
+Run health tiles and the status bar, then three stateful tabs: **Genome map** (opens first), **Features**, **Export**. The Records table was dropped: the map's matrix shows every record with its health, and a failed record's error is in its summary panel and in Processing errors.
+
+**Gene detail** (`_render_feature_detail`, shared by the map and the Features table): the gene's place on the record and on the reference with a bar of its length against the reference gene, coverage and identity as bars with the run's cut-offs marked, start / stop / frame checks, rescue, raw hit and bit score only when they apply, the much-shorter note, the annotation check with its tblastn switch, and the sequence. From the Features table, **Show on genome map** opens the gene on the map.
+
+**Features**: every gene of every record in one table, kept for sorting across the run; Of reference, Coverage and Identity are bar columns.
 
 **Genome map** (`ui/genome_map.py`): a record × gene matrix whose columns are linked to the genes' places on the reference bar, then the selected record drawn under the reference with a ribbon from each reference gene to where it landed. Display only, nothing is recomputed:
 - *Aligned to reference* shifts the record by the median offset of its passing genes (`record_placement()`); a record that is the reverse complement of the reference is drawn mirrored.
