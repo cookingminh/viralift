@@ -32,6 +32,11 @@ PAGE_GUIDES: Dict[str, Dict[str, object]] = {
                 "Every reference you run with is saved: next time pick it from the list, or just "
                 "add the query and the saved reference for its virus is selected for you."
             )),
+            ("Check the reference map", (
+                "Once a reference is chosen, **What this reference will look for** draws its genes "
+                "on the genome, says which alias config names them, and how many query records are "
+                "partial. A wrong reference or the wrong feature level shows here, before the run."
+            )),
             ("Add the query records", (
                 "A `.gb` / `.gbk` file with one or many records. Records that already carry gene "
                 "annotation are renamed (**direct**); records without it are annotated from the "
@@ -132,7 +137,8 @@ PAGE_GUIDES: Dict[str, Dict[str, object]] = {
             ("Position check", (
                 "On opening, the reference genes are aligned to a few records carrying each name and "
                 "compared with where the name is annotated. **Matches VP4** pre-fills the row; "
-                "**spans VP4–VP1** means a precursor such as P1, never one gene."
+                "**spans VP4–VP1** means a precursor such as P1, never one gene. Each row draws it: "
+                "the lifted reference genes on top, the annotated span as a dark bar under them."
             )),
             ("Map each name", (
                 "Each row is one exact set of names, so a decision never covers a different "
@@ -173,6 +179,15 @@ PAGE_GUIDES: Dict[str, Dict[str, object]] = {
                 "gene to compare the annotation with tblastn and choose which to use, or run **Check "
                 "with tblastn** on any annotated gene."
             )),
+            ("Genome map tab", (
+                "Opens first. The matrix has one row per record and one column per reference gene, "
+                "each column linked to its place on the reference bar: a partial record, a gene that "
+                "fails everywhere or an odd record stands out at a glance. An orange corner marks a gene "
+                "that passed but is much shorter than the reference gene. Click a gene name for that "
+                "gene in every record and a one-click FASTA export. Click a row to draw the record under "
+                "the reference: ribbons join each reference gene to where it landed, so a shift, an "
+                "insertion or a cut-short gene is visible. Click a gene for its detail panel."
+            )),
             ("Features tab", (
                 "One row per gene in each query record. Filter by status, method or gene, or search. "
                 "Tick a row to see coordinates, boundary checks and the sequence."
@@ -184,7 +199,8 @@ PAGE_GUIDES: Dict[str, Dict[str, object]] = {
             )),
             ("Export tab", (
                 "TSV with every feature (display or raw source names), and FASTA per gene or combined, "
-                "filtered by status, coverage and identity. Review cases are left out unless you approve them. "
+                "filtered by status, coverage and identity. Pick the genes by clicking them on the "
+                "reference bar or in the list. Review cases are left out unless you approve them. "
                 "**Sequence names** builds each FASTA name from fields you pick, e.g. "
                 "`AJ294911.1_O/HKN/21/70_porcine` (Accession_Isolate_Host); the choice is remembered."
             )),

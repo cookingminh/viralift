@@ -17,6 +17,7 @@ from app.src.llm.alias_review import review_unresolved_names
 from app.src.io.run_logger import log_error, log_session_decisions
 from app.src.lifting.tblastn_lifter import lift_all_tblastn
 from ui.components import _card, _chips_html, _render_callout, _render_page_intro, _render_section_title
+from ui import genome_map
 from ui.guide import _open_guide
 from ui.i18n import _t
 from ui.name_review import (
@@ -52,9 +53,10 @@ def _review_context(unknown: Dict[str, Dict]) -> Dict:
     excluded = _load_excluded_names(Path(config_path)) if config_path else set()
     lookup = st.session_state.alias_lookup or {}
     records = {record.id: record for record in st.session_state.query_records or []}
+    lifted: Dict[str, list] = {}  # kept so each row can draw its record (_render_position_map)
 
     def lift(record):
-        return lift_all_tblastn(
+        lifted[record.id] = lift_all_tblastn(
             st.session_state.ref_features,
             st.session_state.ref_record,
             record,
@@ -63,6 +65,7 @@ def _review_context(unknown: Dict[str, Dict]) -> Dict:
             evalue=st.session_state.evalue,
             rescue_window=st.session_state.rescue_window,
         )
+        return lifted[record.id]
 
     bar = st.progress(0.0, text=_t("position_checking"))
 
@@ -82,6 +85,7 @@ def _review_context(unknown: Dict[str, Dict]) -> Dict:
     context = {
         "for": unknown,
         "evidence": evidence,
+        "lifted": lifted,
         "status": status,
         "patterns": name_patterns(records.values(), lookup, excluded, st.session_state.ref_feature_type),
     }
@@ -111,6 +115,27 @@ def _position_note(evidence: Dict) -> Optional[str]:
     if verdict == "spans" and st.session_state.get("lift_missing"):
         return _t("position_spans_lifted", **values)
     return _t(f"position_{verdict}", **values)
+
+
+def _render_position_map(index: int, label: str, evidence: Dict, lifted: Dict[str, list]) -> None:
+    """The reference genes as lifted onto the record the row was checked on,
+    with the annotated span drawn under them."""
+    record_id = evidence.get("record")
+    if not record_id or record_id not in lifted or evidence.get("start") is None:
+        return
+    highlight = evidence.get("genes") or ([evidence["gene"]] if evidence.get("gene") else [])
+    genome_map.render(
+        genome_map.evidence_payload(
+            record_id,
+            evidence.get("record_length") or 0,
+            lifted[record_id],
+            evidence["start"],
+            evidence["end"],
+            label,
+            highlight,
+        ),
+        f"vl_map_evidence_{index}",
+    )
 
 
 def _existing_aliases(config_path: Optional[str], limit: int = 12) -> Dict[str, List[str]]:
@@ -432,6 +457,8 @@ def stage_resolve():
                     )
             else:
                 col_save.caption(_t("keep_raw_note"))
+
+            _render_position_map(index, candidates[0], row_evidence, context.get("lifted") or {})
 
     # Unknown names (completely unrecognised)
     for index, (rep, info) in enumerate(unknown_items.items()):

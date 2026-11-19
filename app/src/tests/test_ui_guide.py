@@ -57,3 +57,17 @@ def test_position_cells_sort_numerically_as_text():
 
 def test_rich_text_escapes_before_adding_markup():
     assert _rich("`<b>` and **ok**") == "<code>&lt;b&gt;</code> and <b>ok</b>"
+
+
+def test_every_text_key_used_by_the_ui_exists():
+    # _t() falls back to the raw key, so a missing entry shows up as e.g. "map_prev".
+    import re
+    from pathlib import Path
+
+    ui_dir = Path(__file__).resolve().parents[3] / "ui"
+    used = {
+        (key, path.name)
+        for path in ui_dir.rglob("*.py")
+        for key in re.findall(r'_t\(\s*"([a-z0-9_]+)"', path.read_text(encoding="utf-8"))
+    }
+    assert sorted(item for item in used if item[0] not in UI_TEXT["en"]) == []
