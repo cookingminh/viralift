@@ -19,7 +19,6 @@ UI_TEXT = {
         "guide_this_page": "This page",
         "guide_workflow": "How ViraLift works",
         "guide_reference": "Statuses & terms",
-        "table_help": "How to read",
         # ── step 1 · setup ────────────────────────────────────────────
         "run_setup": "Run pipeline",
         "upload_title": "Set up a run",
@@ -206,7 +205,7 @@ UI_TEXT = {
         "check_looks_like": "{verdict} · looks like {gene}",
         "annotation_check_banner": (
             "<b>Annotation check</b>: {confirmed} of {checked} annotated genes match the reference"
-            "{issues}.{replaced} Tick a gene to compare its annotation with tblastn."
+            "{issues}.{replaced} Click a gene on the genome map to compare its annotation with tblastn."
         ),
         "annotation_check_issue": "{count} {label}",
         "annotation_check_replaced": " For {count} of them tblastn's more exact placement is used.",
@@ -228,8 +227,21 @@ UI_TEXT = {
         "processing_error": "{count} query record(s) failed during processing. They are excluded from the pass rate and listed below.",
         "processing_errors": "Processing errors",
         "view_map": "Genome map",
-        "view_features": "Features",
-        "view_records": "Records",
+        # ── gene detail (Genome map and Features) ─────────────────────
+        "detail_record": "Record",
+        "detail_reference": "Reference",
+        "detail_not_placed": "not placed on this record",
+        "detail_no_reference": "no reference gene of this name",
+        "detail_share": "{share} of the reference gene's length",
+        "detail_not_aligned": "Taken from the record's annotation as it is, not aligned to the reference protein.",
+        "detail_turn_on_check": "Turn on Check annotations against the reference to measure coverage and identity.",
+        "detail_coverage": "Coverage",
+        "detail_identity": "Identity",
+        "detail_cutoff": "Run cut-off: {value}",
+        "detail_rescue": "Rescue",
+        "detail_raw_hit": "Raw tblastn hit",
+        "detail_bit_score": "Bit score",
+        "detail_annotated_as": "Annotated as “{name}”",
         "view_export": "Export",
         # ── genome map (ui/genome_map.py) ─────────────────────────────
         "map_matrix_title": "Every record against the reference",
@@ -237,12 +249,22 @@ UI_TEXT = {
             "{shown} of {total} records · one row per record, one column per reference gene. "
             "Click a row or a cell to open it below, a gene name to see that gene in every record."
         ),
-        "map_matrix_limit": "Drawing the first {limit} of {total} records. Filter or search to see the rest.",
         "map_matrix_legend": (
             "Green: OK · blue: OK after an adjustment · orange: needs review · red: no hit · "
             "dashed: outside a partial record · orange corner: much shorter than the reference gene · "
             "+n: annotated names the reference does not have."
         ),
+        "map_sort": "Sort",
+        "map_sort_order": "Sort: run order",
+        "map_sort_review": "Sort: needs review first",
+        "map_sort_identity": "Sort: lowest identity",
+        "map_sort_coverage": "Sort: lowest coverage",
+        "map_sort_length": "Sort: shortest against the reference",
+        "map_metric_identity": "identity",
+        "map_metric_coverage": "coverage",
+        "map_metric_length": "length against the reference gene",
+        "map_sorted_gene": "Sorted by {gene}'s {metric}, lowest first. Close the gene to sort by each record's lowest instead.",
+        "map_sorted_lowest": "Sorted by each record's lowest {metric}, lowest first. Click a gene name to sort by that gene.",
         "map_tone_ok": "OK",
         "map_tone_info": "OK, adjusted",
         "map_tone_warn": "Needs review",
@@ -275,30 +297,12 @@ UI_TEXT = {
         "map_reverse": "reverse complement",
         "map_method": "Method",
         "map_pick_gene": "Click a gene, a ribbon or a matrix cell to see its coordinates, checks and sequence here.",
-        "filter_show": "Show",
-        "filter_method": "Method",
-        "filter_genes": "Genes",
         "filter_all": "All",
-        "filter_review": "Needs review",
-        "filter_passed": "Passed",
-        "filter_other": "Other",
-        "filter_in_sequence": "In sequence",
-        "filter_absent": "Not in sequence",
-        "filter_any_method": "Any method",
         "method_direct": "Direct",
         "method_tblastn": "tblastn",
         "method_both": "Direct + tblastn",
-        "all_genes": "All genes",
-        "search_feature": "Search record or gene",
         "search_record": "Search record ID",
         "health_filter": "Health",
-        "feature_table": "Feature table",
-        "feature_table_caption": "{shown} of {total} features · one row per gene in each query record",
-        "record_table": "Record table",
-        "record_table_caption": "{shown} of {total} records · one row per query record",
-        "no_rows": "No features match these filters.",
-        "select_hint": "Tick a row to see its coordinates, boundary checks and sequence below the table.",
-        "select_record_hint": "Tick a record to list its features below the table.",
         "record_overview": "Records",
         "all": "all",
         "failed": "Failed",
@@ -306,7 +310,6 @@ UI_TEXT = {
         "health_partial": "Partial",
         "health_no_genes": "No genes found",
         "passed": "Passed",
-        "no_features": "No features were returned for this record.",
         "invalid_boundary_help": (
             "tblastn found a strong protein match, but the extracted CDS did not pass the "
             "start/stop/frame checks. start = ATG at the beginning, stop = TAA/TAG/TGA at "
@@ -321,6 +324,11 @@ UI_TEXT = {
         "download_raw": "TSV · raw source names",
         "fasta_intro": "Pick genes and quality filters, then generate the downloads.",
         "genes_to_extract": "Genes to extract",
+        "genes_picked": "{count} of {total} selected",
+        "pick_all": "Select all",
+        "pick_none": "Unselect all",
+        "pick_hint": "Click a gene on the reference or in the list below it to add or remove it. Numbers are sequences that passed.",
+        "pick_hint_empty": "No gene selected. Click genes on the reference, or Select all.",
         "output_format": "Output format",
         "one_fasta": "One file per gene",
         "all_fasta": "All genes in one file",

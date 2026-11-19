@@ -419,6 +419,29 @@ h1, h2, h3, h4 { letter-spacing: -0.015em; text-wrap: balance; }
 .vl-kv-label { font-size: 0.68rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--vl-faint); }
 .vl-kv-value { font-family: var(--vl-mono); font-size: 0.86rem; color: var(--vl-text); margin-top: 0.15rem; overflow-wrap: anywhere; }
 .vl-explain { margin-top: 0.9rem; font-size: 0.84rem; line-height: 1.55; color: var(--vl-muted); }
+/* gene detail (results.py _render_feature_detail): placement, length against
+   the reference, coverage / identity bars with the run's cut-off, checks */
+.vl-detail-sub { margin: -0.6rem 0 0.8rem; }
+.vl-faint { color: var(--vl-faint); }
+.vl-place { display: grid; gap: 0.3rem; max-width: 34rem; }
+.vl-place-row { display: grid; grid-template-columns: 5.5rem minmax(0, 1fr) auto; gap: 0.6rem; align-items: baseline; }
+.vl-place-label { font-size: 0.68rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--vl-faint); }
+.vl-place-coords { font-family: var(--vl-mono); font-size: 0.86rem; color: var(--vl-text); overflow-wrap: anywhere; }
+.vl-place-len { font-family: var(--vl-mono); font-size: 0.8rem; color: var(--vl-muted); white-space: nowrap; }
+.vl-lenbar { height: 0.4rem; border-radius: 999px; background: var(--vl-surface-2); overflow: hidden; margin-top: 0.35rem; }
+.vl-lenbar span { display: block; height: 100%; border-radius: 999px; background: var(--vl-ok); }
+.vl-lenbar.tone-warn span { background: var(--vl-warn); }
+.vl-lenbar-note { font-size: 0.76rem; color: var(--vl-muted); }
+.vl-meters { display: grid; grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr)); gap: 0.6rem 1.2rem; margin-top: 0.9rem; max-width: 34rem; }
+.vl-meter-head { display: flex; justify-content: space-between; align-items: baseline; font-size: 0.68rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--vl-faint); }
+.vl-meter-head b { font-family: var(--vl-mono); font-size: 0.86rem; letter-spacing: 0; color: var(--vl-text); }
+.vl-meter-bar { position: relative; height: 0.4rem; border-radius: 999px; background: var(--vl-surface-2); margin-top: 0.3rem; }
+.vl-meter-bar span { display: block; height: 100%; border-radius: 999px; background: var(--vl-ok); }
+.vl-meter.tone-warn .vl-meter-bar span { background: var(--vl-warn); }
+.vl-meter-bar i { position: absolute; top: -0.2rem; bottom: -0.2rem; width: 2px; margin-left: -1px; background: var(--vl-text); opacity: 0.45; border-radius: 1px; }
+.vl-checks { display: flex; flex-wrap: wrap; gap: 0.4rem 0.8rem; align-items: center; margin-top: 0.9rem; }
+.vl-fact-inline { font-size: 0.8rem; color: var(--vl-muted); }
+.vl-fact-inline b { font-family: var(--vl-mono); font-weight: 600; color: var(--vl-text); }
 .vl-seq {
     margin-top: 0.9rem;
     padding: 0.75rem 0.9rem;
@@ -442,8 +465,6 @@ h1, h2, h3, h4 { letter-spacing: -0.015em; text-wrap: balance; }
 /* ── result tables + tabs ───────────────────────────────────────── */
 /* tab markup differs across Streamlit versions: baseweb tabs (≤1.58) and react-aria stTab (1.67+) */
 :is([data-baseweb="tab"], [data-testid="stTab"]) p { font-weight: 600; font-size: 0.95rem; }
-.st-key-features_table_help button, .st-key-records_table_help button { color: var(--vl-muted); }
-.st-key-features_table_help button:hover, .st-key-records_table_help button:hover { color: var(--vl-primary-text); }
 
 /* ── guide dialog + "How to read" popovers (ui/guide.py) ────────── */
 /* Selectors are prefixed with .vl-guide so they outrank Streamlit's own

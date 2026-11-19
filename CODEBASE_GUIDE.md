@@ -465,17 +465,23 @@ else:
 
 ### Stage 4 — Results
 
-Run health tiles and the status bar, then four stateful tabs: **Genome map** (opens first), **Features**, **Records**, **Export**.
+Run health tiles and the status bar, then two stateful tabs: **Genome map** (opens first) and **Export**. The Records and Features tables were dropped: the map's matrix shows every record with its health and sorts by the lowest identity, coverage or length against the reference, clicking a cell opens that gene's detail, and a failed record's error is in its summary panel and in Processing errors. For number crunching across the run there is the TSV export.
+
+**Gene detail** (`_render_feature_detail`, beside the record map): the gene's place on the record and on the reference with a bar of its length against the reference gene, coverage and identity as bars with the run's cut-offs marked, start / stop / frame checks, rescue, raw hit and bit score only when they apply, the much-shorter note, the annotation check with its tblastn switch, and the sequence.
+
 
 **Genome map** (`ui/genome_map.py`): a record × gene matrix whose columns are linked to the genes' places on the reference bar, then the selected record drawn under the reference with a ribbon from each reference gene to where it landed. Display only, nothing is recomputed:
 - *Aligned to reference* shifts the record by the median offset of its passing genes (`record_placement()`); a record that is the reverse complement of the reference is drawn mirrored.
 - For CDS the lanes are reading frames +1/+2/+3, so overlapping ORFs separate as in the genome.
 - A gene that passed but is under 80% of its reference gene's length gets an orange corner (`is_much_shorter()`); when a boundary rescue moved an end by more than 30 bp, the raw tblastn hit is drawn under the record.
-- Clicks come back as component events (`select`, `focus`, `pick`); the handlers only set `map_record` / `map_gene` / `map_focus` / `fasta_genes`, and the selected gene opens the same detail panel as the Features tab.
+- Clicks come back as component events (`select`, `focus`, `pick`); the handlers only set `map_record` / `map_gene` / `map_focus` / `fasta_genes`, and the selected gene opens the detail panel.
+- The matrix rows scroll in their own box (max 520 px) under a sticky header (reference bar, links, gene names); a record selected from outside the matrix (Previous / Next, Worth a look) is scrolled into view.
+- Every record is sent (`matrix_rows`: one status character per gene, ~400 KB for 8,553 records) and the browser draws only the rows in view, so a run of thousands of records scrolls like a short one. The rows are cached in `map_matrix_cache` until the run, a choice, the filter, the search or the sort changes.
+- **Sort**: run order, needs review first, or the lowest identity, coverage or length against the reference (`record_metric`: the open gene's value, else each record's lowest).
 
 Export:
 - **TSV** — with canonical names or raw names
-- **FASTA** — genes picked on the reference bar or in the multiselect (both edit `fasta_genes`), quality filters (min coverage/identity, include/exclude rescued), one file per gene or combined
+- **FASTA** — genes picked on the reference bar or its chips, with Select all / Unselect all (`fasta_genes`, plain session state, so the choice survives switching tabs), quality filters (min coverage/identity, include/exclude rescued), one file per gene or combined
 
 ---
 

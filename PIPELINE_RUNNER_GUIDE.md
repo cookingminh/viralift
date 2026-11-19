@@ -162,9 +162,9 @@ Displays:
 - Total features found.
 - Pass rate.
 - Number of features needing review.
-- **Genome map** (opens first): one row per record and one column per reference gene, each column linked to its place on the reference bar. Partial records, a gene failing across records, or a passing gene much shorter than the reference (orange corner) stand out at a glance. Click a gene name for that gene in every record and a one-click FASTA export; click a row to draw that record under the reference, with a ribbon from each reference gene to where it landed. Shifts, insertions and cut-short genes show as slanted or narrowing ribbons; a dashed orange bar under the record is the raw tblastn hit before boundary rescue.
-- Feature and record tables.
-- TSV/FASTA export; FASTA genes can be picked by clicking them on the reference bar.
+- **Genome map** (opens first): one row per record and one column per reference gene, each column linked to its place on the reference bar. The rows scroll in their own box under a header that stays in place, so the record map below is always close. Partial records, a gene failing across records, or a passing gene much shorter than the reference (orange corner) stand out at a glance. Click a gene name for that gene in every record and a one-click FASTA export; click a row to draw that record under the reference, with a ribbon from each reference gene to where it landed. Shifts, insertions and cut-short genes show as slanted or narrowing ribbons; a dashed orange bar under the record is the raw tblastn hit before boundary rescue.
+- **Sort** the matrix by needs review first, or by the lowest identity, coverage or length against the reference: each record's lowest, or the open gene's when you have clicked a gene name. Every record is shown, however many there are. Clicking a cell opens that gene's detail panel beside the record map.
+- TSV/FASTA export; FASTA genes are picked by clicking them on the reference bar (or the chips under it), with Select all / Unselect all.
 
 ## How does the tool decide direct vs tblastn?
 

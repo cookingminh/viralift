@@ -50,7 +50,7 @@ PAGE_GUIDES: Dict[str, Dict[str, object]] = {
                 "On (default): reference genes an annotated record does not name, such as a genome "
                 "annotated only as P1/P2/P3 precursors or with 2A and 3B left out, are lifted with "
                 "tblastn. Its annotated genes stay exactly as they are; such a record shows "
-                "**Direct + tblastn** in the Records table. Off: annotated records return only the genes they name."
+                "**Direct + tblastn** on the genome map. Off: annotated records return only the genes they name."
             )),
             ("Check annotations against the reference", (
                 "On (default): every annotated gene is aligned to the reference protein of the same "
@@ -172,42 +172,41 @@ PAGE_GUIDES: Dict[str, Dict[str, object]] = {
                 "fall outside such a record are marked **Not in sequence**: nothing to review, and "
                 "they are left out of the pass rate. A **No hit** inside the record is a real miss."
             )),
-            ("Status bar", "The share of each status across all features. The colours match the table."),
+            ("Status bar", "The share of each status across all features. The colours match the map."),
             ("Annotation check", (
                 "How many annotated genes match the reference, and how many were partial, fragments, "
-                "too divergent or longer than the gene. The **Check** column shows it per gene; tick a "
-                "gene to compare the annotation with tblastn and choose which to use, or run **Check "
+                "too divergent or longer than the gene. Click a gene on the genome map: its detail panel "
+                "compares the annotation with tblastn and lets you choose which to use, or runs **Check "
                 "with tblastn** on any annotated gene."
             )),
             ("Genome map tab", (
-                "Opens first. The matrix has one row per record and one column per reference gene, "
-                "each column linked to its place on the reference bar: a partial record, a gene that "
-                "fails everywhere or an odd record stands out at a glance. An orange corner marks a gene "
-                "that passed but is much shorter than the reference gene. Click a gene name for that "
-                "gene in every record and a one-click FASTA export. Click a row to draw the record under "
-                "the reference: ribbons join each reference gene to where it landed, so a shift, an "
-                "insertion or a cut-short gene is visible. Click a gene for its detail panel."
+                "Opens first. The matrix has one row per record, every record of the run, and one column per "
+                "reference gene, each column linked to its place on the reference bar: a partial record, "
+                "a gene that fails everywhere or an odd record stands out at a glance. An orange corner "
+                "marks a gene that passed but is much shorter than the reference gene. Filter by health, "
+                "search, and **Sort** by needs review or by the lowest identity, coverage or length "
+                "against the reference (each record's lowest, or the open gene's)."
             )),
-            ("Features tab", (
-                "One row per gene in each query record. Filter by status, method or gene, or search. "
-                "Tick a row to see coordinates, boundary checks and the sequence."
-            )),
-            ("Records tab", (
-                "One row per query record with its health: **Passed**, **Partial** (only part of "
-                "the genome, everything in it passed), **Needs review**, **No genes found** or "
-                "**Failed**. Tick a record to list its genes or read its error."
+            ("Genes and records", (
+                "Click a gene name for that gene in every record, the records to check and a one-click "
+                "FASTA export. Click a row or a cell to draw the record under the reference: ribbons join "
+                "each reference gene to where it landed, so a shift, an insertion or a cut-short gene is "
+                "visible. The detail panel beside it shows the clicked gene's coordinates, its length "
+                "against the reference, coverage and identity against the run's cut-offs, the boundary "
+                "checks, the annotation check and the sequence."
             )),
             ("Export tab", (
                 "TSV with every feature (display or raw source names), and FASTA per gene or combined, "
                 "filtered by status, coverage and identity. Pick the genes by clicking them on the "
-                "reference bar or in the list. Review cases are left out unless you approve them. "
+                "reference bar or in the list under it; **Select all** / **Unselect all** set them all "
+                "at once. Review cases are left out unless you approve them. "
                 "**Sequence names** builds each FASTA name from fields you pick, e.g. "
                 "`AJ294911.1_O/HKN/21/70_porcine` (Accession_Isolate_Host); the choice is remembered."
             )),
         ],
         "tip": (
-            "Green rows are ready to use. Blue rows passed after an adjustment; open one to see the "
-            "**Rescue action** if exact boundaries matter."
+            "Green cells are ready to use. Blue cells passed after an adjustment; open one to see the "
+            "**Rescue** if exact boundaries matter."
         ),
     },
     "crawler": {
@@ -368,32 +367,20 @@ FEATURE_COLUMN_HELP = {
     "Start": "First base on the query record, 1-based and inclusive (GenBank style). Blank when the gene was not found.",
     "End": "Last base. Start is the lower number on both strands.",
     "Length": "End − Start + 1, in nucleotides.",
-    "Strand": "+ forward, − reverse complement.",
+    "Of reference": (
+        "Length as a share of the reference gene's length. Far under 100% means a fragment or a "
+        "gene cut short; over 100% an annotation longer than the gene."
+    ),
     "Check": (
         "Annotation check for genes taken from the record's annotation: Matches reference, Partial, "
         "Fragment, Low identity or Longer than gene; → tblastn when tblastn's placement is used instead."
     ),
     "Coverage": (
         "Share of the reference protein the alignment covers: tblastn's, or for annotated genes the "
-        "annotation check's (100% when the check is off)."
+        "annotation check's (100% when the check is off). Blank when the gene was not placed."
     ),
     "Identity": "Amino-acid identity of the alignment. Blank for annotated genes when the check is off.",
     "Raw name": "Name as written in the query annotation. Blank for tblastn features.",
-}
-
-RECORD_COLUMN_HELP = {
-    "Record": "Query record (GenBank accession.version).",
-    "Health": (
-        "Passed; Partial (covers part of the genome, all of it passed); Needs review; "
-        "No genes found (none of the reference genes located); Failed (errored) or Empty."
-    ),
-    "Length": "Length of the query record in bases. Short records usually hold a single gene or region.",
-    "Features": "Reference genes reported for this record.",
-    "In sequence": "Genes that lie inside this record; the rest are Not in sequence.",
-    "Pass rate": "Share of the genes in sequence with a passing status.",
-    "Needs review": "Genes in this record to inspect before use.",
-    "Method": "Direct, tblastn, or both when only some genes were annotated.",
-    "Error": "Why the record failed, if it did.",
 }
 
 TONE_LEGEND = [
@@ -403,13 +390,6 @@ TONE_LEGEND = [
     ("danger", "Not found"),
     ("neutral", "Informational"),
 ]
-
-TABLE_TIPS = [
-    "Click a header to sort; hover it for this explanation.",
-    "Tick a row to open its details below the table.",
-    "Hover the table for search, CSV download and full screen.",
-]
-
 
 def _rich(text: str) -> str:
     """Escape, then turn `code` and **bold** spans into markup."""
@@ -541,20 +521,3 @@ def _open_guide() -> None:
         st.html(_status_reference_html())
 
 
-def _render_table_help(column_help: Dict[str, str], key: str, status_legend: bool = True) -> None:
-    """(?) popover that explains a result table's columns, colours and controls."""
-    legend = (
-        "<div class='vl-guide-subtitle'>Status colours</div>" + _legend_html()
-        if status_legend else ""
-    )
-    with st.popover(_t("table_help"), icon=":material/help:", type="tertiary", key=key):
-        st.html(
-            "<div class='vl-guide vl-guide-compact'>"
-            f"{legend}"
-            "<div class='vl-guide-subtitle'>Columns</div>"
-            f"{_terms_html(list(column_help.items()))}"
-            "<div class='vl-guide-subtitle'>Working with the table</div>"
-            "<ul class='vl-guide-tips'>"
-            + "".join(f"<li>{_rich(tip)}</li>" for tip in TABLE_TIPS)
-            + "</ul></div>"
-        )
