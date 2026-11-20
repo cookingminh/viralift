@@ -407,6 +407,15 @@ def test_genome_map_opens_the_selected_gene(prrs_run):
     at.run()
     _assert_clean(at)
     assert f"{record_id} · ORF5" in _page_html(at)
+    assert any("Showing ORF5 under the map" in caption.value for caption in at.caption)
+
+
+@requires_sample_data
+def test_genome_map_tells_how_to_open_a_gene(prrs_run):
+    at = _app(stage="results", **prrs_run)
+    at.run()
+    _assert_clean(at)
+    assert "Tip: click a gene on the map below" in _page_html(at)
 
 
 @requires_sample_data

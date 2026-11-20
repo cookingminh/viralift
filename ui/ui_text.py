@@ -296,7 +296,12 @@ UI_TEXT = {
         "map_shift": "Shift vs reference",
         "map_reverse": "reverse complement",
         "map_method": "Method",
-        "map_pick_gene": "Click a gene, a ribbon or a matrix cell to see its coordinates, checks and sequence here.",
+        "map_pick_gene": "Pick a gene on the map above to see its coordinates, checks and sequence here.",
+        "map_select_tip": (
+            "Tip: click a gene on the map below, its ribbon, or a cell in the matrix above to see that "
+            "gene's coordinates, coverage, identity, annotation check and sequence under the map."
+        ),
+        "map_showing_gene": "Showing {gene} under the map. Click another gene to switch, or {gene} again to close it.",
         "filter_all": "All",
         "method_direct": "Direct",
         "method_tblastn": "tblastn",

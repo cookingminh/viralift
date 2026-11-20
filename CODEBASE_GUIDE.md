@@ -467,7 +467,7 @@ else:
 
 Run health tiles and the status bar, then two stateful tabs: **Genome map** (opens first) and **Export**. The Records and Features tables were dropped: the map's matrix shows every record with its health and sorts by the lowest identity, coverage or length against the reference, clicking a cell opens that gene's detail, and a failed record's error is in its summary panel and in Processing errors. For number crunching across the run there is the TSV export.
 
-**Gene detail** (`_render_feature_detail`, beside the record map): the gene's place on the record and on the reference with a bar of its length against the reference gene, coverage and identity as bars with the run's cut-offs marked, start / stop / frame checks, rescue, raw hit and bit score only when they apply, the much-shorter note, the annotation check with its tblastn switch, and the sequence.
+**Gene detail** (`_render_feature_detail`, under the record map, facts beside the sequence): the gene's place on the record and on the reference with a bar of its length against the reference gene, coverage and identity as bars with the run's cut-offs marked, start / stop / frame checks, rescue, raw hit and bit score only when they apply, the much-shorter note, the annotation check with its tblastn switch, and the sequence.
 
 
 **Genome map** (`ui/genome_map.py`): a record × gene matrix whose columns are linked to the genes' places on the reference bar, then the selected record drawn under the reference with a ribbon from each reference gene to where it landed. Display only, nothing is recomputed:

@@ -191,7 +191,7 @@ PAGE_GUIDES: Dict[str, Dict[str, object]] = {
                 "Click a gene name for that gene in every record, the records to check and a one-click "
                 "FASTA export. Click a row or a cell to draw the record under the reference: ribbons join "
                 "each reference gene to where it landed, so a shift, an insertion or a cut-short gene is "
-                "visible. The detail panel beside it shows the clicked gene's coordinates, its length "
+                "visible. The detail panel under it shows the clicked gene's coordinates, its length "
                 "against the reference, coverage and identity against the run's cut-offs, the boundary "
                 "checks, the annotation check and the sequence."
             )),

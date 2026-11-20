@@ -283,7 +283,7 @@ def _clear_approvals() -> None:
 
 
 # ── gene detail ───────────────────────────────────────────────────────────
-# The panel for the gene clicked on the Genome map: where
+# The panel for the gene clicked on the Genome map, under the record map: where
 # it sits on the record and on the reference (with a bar of its length against
 # the reference gene), coverage and identity as bars against the run's cut-offs,
 # the boundary checks, the annotation check with its tblastn switch, and the
@@ -404,13 +404,18 @@ def _render_feature_detail(query_id: str, lf: LiftedFeature, gene: str) -> None:
     }.get(lf.status)
     explain = f"<div class='vl-explain'>{html.escape(_t(explain_key))}</div>" if explain_key else ""
     with _card("feature_detail"):
-        st.html(head + _placement_html(lf) + _meters_html(lf) + _checks_html(lf) + explain)
-        note = _short_note(lf, _record_length(query_id))
-        if note:
-            _render_callout(html.escape(note), tone="warn", icon="!")
-        _render_annotation_check(query_id, lf, gene)
-        if lf.sequence:
-            st.html(_sequence_html(lf.sequence))
+        # Full width under the map: the facts on the left, the sequence beside
+        # them (Streamlit stacks the two columns on a narrow screen).
+        facts, sequence = st.columns([1, 1.15], gap="large") if lf.sequence else (st.container(), None)
+        with facts:
+            st.html(head + _placement_html(lf) + _meters_html(lf) + _checks_html(lf) + explain)
+            note = _short_note(lf, _record_length(query_id))
+            if note:
+                _render_callout(html.escape(note), tone="warn", icon="!")
+            _render_annotation_check(query_id, lf, gene)
+        if sequence is not None:
+            with sequence:
+                st.html(_sequence_html(lf.sequence))
 
 
 def _span_length(feature: LiftedFeature) -> str:
@@ -826,8 +831,8 @@ def _render_map_view(display_results: Results, error_map: Dict[str, str], ref_na
     features = features_of[record_id]
     record = records.get(record_id)
     length = len(record.seq) if record is not None else 0
-    col_map, col_detail = st.columns([2.4, 1], gap="medium")
-    with col_map, _card("map_record"):
+    lf = _map_feature(features, st.session_state.get("map_gene"))
+    with _card("map_record"):
         with st.container(horizontal=True, horizontal_alignment="distribute", vertical_alignment="top"):
             st.html(
                 f"<div class='vl-section-title vl-mono'>{html.escape(record_id)}</div>"
@@ -856,6 +861,11 @@ def _render_map_view(display_results: Results, error_map: Dict[str, str], ref_na
                 key="map_jump",
                 on_change=_jump_to_record,
             )
+        # The detail opens under the map, so say how to get there.
+        if lf is None:
+            _render_callout(html.escape(_t("map_select_tip")), tone="info", icon="i")
+        else:
+            st.caption(f":material/arrow_downward: {_t('map_showing_gene', gene=label_of(lf.name) if label_of else lf.name)}")
         genome_map.render(
             genome_map.tracks_payload(
                 ref, record_id, length, features, selected=st.session_state.get("map_gene"), label_of=label_of,
@@ -865,12 +875,10 @@ def _render_map_view(display_results: Results, error_map: Dict[str, str], ref_na
         )
         st.caption(_t("map_tracks_legend"))
 
-    with col_detail:
-        lf = _map_feature(features, st.session_state.get("map_gene"))
-        if lf is None:
-            _render_record_summary(record_id, features, length, health[record_id], ref, error_map.get(record_id))
-        else:
-            _render_feature_detail(record_id, lf, label_of(lf.name) if label_of else lf.name)
+    if lf is None:
+        _render_record_summary(record_id, features, length, health[record_id], ref, error_map.get(record_id))
+    else:
+        _render_feature_detail(record_id, lf, label_of(lf.name) if label_of else lf.name)
 
 
 def _render_approval_editor(rows: List[FeatureRow]) -> None:
