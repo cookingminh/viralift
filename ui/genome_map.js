@@ -208,7 +208,9 @@ function drawMatrixRows(root) {
   gm.matrixWindow = [from, to];
   const { W, x0, colW, cx, rowH, rowsTop } = g;
   const w = Math.max(4, colW - 6);
-  let s = g.band(-12, g.H + 6);
+  // Hatching over the status colour marks a gene placed by tblastn.
+  let s = '<defs><pattern id="gm-blast" width="5" height="5" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">' +
+    '<line x1="0" y1="0" x2="0" y2="5" class="blast-line"/></pattern></defs>' + g.band(-12, g.H + 6);
   for (let ri = from; ri < to; ri++) {
     const [id, healthKey, codes, extras, passed, total, short] = rows[ri];
     const y = rowsTop + ri * rowH, sel = id === d.selected;
@@ -223,6 +225,7 @@ function drawMatrixRows(root) {
       if (!cell) { s += `<rect class="cell c-none" x="${x}" y="${y + 4}" width="${r1(w)}" height="${rowH - 8}" rx="3"/>`; continue; }
       const [key, , tone] = statusOf(d, cell.si);
       s += `<rect class="cell c-${esc(key === d.absent ? "absent" : tone)}${cell.blast ? " is-blast" : ""}" x="${x}" y="${y + 4}" width="${r1(w)}" height="${rowH - 8}" rx="3" data-gene="${esc(d.columns[i])}" data-tip="cell|${ri}|${i}"/>`;
+      if (cell.blast) s += `<rect class="blast" x="${x}" y="${y + 4}" width="${r1(w)}" height="${rowH - 8}" rx="3" fill="url(#gm-blast)"/>`;
       if (short && short.includes(i)) s += `<path class="short-flag" d="M${r1(x + w - 7)},${y + 4}h7v7z"/>`;
     }
     if (extras.length) s += `<text class="extra-count" x="${r1(cx(g.ncols - 1))}" y="${y + rowH / 2 + 4}" text-anchor="middle" data-tip="extra|${ri}">+${extras.length}</text>`;
@@ -290,7 +293,7 @@ function drawTracks(root, svg, bar, W, d) {
   const toneOf = (f) => statusOf(d, f.si)[2];
   const keyOf = (f) => statusOf(d, f.si)[0];
   let s = `<defs><clipPath id="gm-clip"><rect x="${x0}" y="0" width="${x1 - x0}" height="${H}"/></clipPath>` +
-    `<pattern id="gm-hatch" width="5" height="5" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="5" height="5" class="hatch-bg"/><line x1="0" y1="0" x2="0" y2="5" class="hatch-line"/></pattern></defs>`;
+    `<pattern id="gm-blast-on" width="5" height="5" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="5" class="blast-line on-tone"/></pattern></defs>`;
 
   s += `<text class="track-label" x="6" y="${refLane0 + 11}">Reference</text><text class="track-sub" x="6" y="${refLane0 + 25}">${esc(ref.id)}</text>`;
   s += `<text class="track-label" x="6" y="${qLane0 + 11}">Record</text><text class="track-sub" x="6" y="${qLane0 + 25}">${esc(rec.id)}</text>`;
@@ -335,7 +338,9 @@ function drawTracks(root, svg, bar, W, d) {
     const xa = sx(it.s + off), xb = sx(it.e + 1 + off);
     const strand = G.flip ? (f.strand === "-" ? "+" : "-") : f.strand;
     const tone = toneOf(f);
-    s += `<path class="q-gene tone-${esc(tone)}${extra ? " is-extra" : ""}${f.method === "tblastn" ? " is-blast" : ""}${sel === f.name ? " is-selected" : ""}" d="${arrowPath(xa, xb, y, laneH, strand)}" data-gene="${esc(f.name)}" data-tip="feat|${f.i}"/>`;
+    const blast = f.method === "tblastn";
+    s += `<path class="q-gene tone-${esc(tone)}${extra ? " is-extra" : ""}${blast ? " is-blast" : ""}${sel === f.name ? " is-selected" : ""}" d="${arrowPath(xa, xb, y, laneH, strand)}" data-gene="${esc(f.name)}" data-tip="feat|${f.i}"/>`;
+    if (blast) s += `<path class="blast" d="${arrowPath(xa, xb, y, laneH, strand)}" fill="url(#gm-blast-on)" data-gene="${esc(f.name)}"/>`;
     if (fits(f.label, xb - xa)) s += `<text class="q-label${extra || tone === "neutral" ? " is-extra" : ""}" x="${r1((xa + xb) / 2)}" y="${y + 12.5}" text-anchor="middle" data-gene="${esc(f.name)}">${esc(f.label)}</text>`;
     if (f.short) s += `<path class="short-flag" d="M${r1(xb - 7)},${y}h7v7z" data-gene="${esc(f.name)}"/>`;
   });

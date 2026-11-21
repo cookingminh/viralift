@@ -110,9 +110,11 @@
 .cell.c-absent { fill: transparent; stroke: var(--gm-border-strong); stroke-dasharray: 2 2; }
 .cell.c-none { fill: transparent; }
 .cell[data-tip]:hover { stroke: var(--gm-text); stroke-width: 1.5; stroke-dasharray: none; }
-/* placed by tblastn: a blue outline with a soft glow, on the matrix and the record map */
-.cell.is-blast { stroke: var(--gm-info); stroke-width: 1.5; filter: drop-shadow(0 0 2.5px var(--gm-info)); }
-.q-gene.is-blast { stroke: var(--gm-info); stroke-width: 1.6; filter: drop-shadow(0 0 3px var(--gm-info)); }
+/* placed by tblastn: diagonal hatching over the status colour, ink on the matrix
+   cells, page colour on the record map's solid genes */
+.blast { pointer-events: none; }
+.blast-line { stroke: var(--gm-text); stroke-width: 1.6; opacity: 0.3; }
+.blast-line.on-tone { stroke: var(--gm-on-tone); opacity: 0.45; }
 .short-flag { fill: var(--gm-warn); pointer-events: none; }
 .dot.tone-ok { fill: var(--gm-ok); }
 .dot.tone-info { fill: var(--gm-info); }
@@ -132,12 +134,9 @@
 .q-gene.tone-info { fill: var(--gm-info); stroke: var(--gm-info); }
 .q-gene.tone-warn { fill: var(--gm-warn); stroke: var(--gm-warn); }
 .q-gene.tone-danger { fill: var(--gm-danger); stroke: var(--gm-danger); }
-.q-gene.tone-neutral { fill: url(#gm-hatch); stroke: var(--gm-neutral); }
-.q-gene.is-extra { fill: url(#gm-hatch); }
+.q-gene.tone-neutral, .q-gene.is-extra { fill: var(--gm-neutral-soft); stroke: var(--gm-neutral); stroke-dasharray: 3 2; }
 .q-label { fill: var(--gm-on-tone); font-size: 10.5px; font-weight: 600; pointer-events: none; }
 .q-label.is-extra { fill: var(--gm-text); }
-.hatch-bg { fill: var(--gm-neutral-soft); }
-.hatch-line { stroke: var(--gm-neutral); stroke-width: 1.4; opacity: 0.55; }
 .rib { stroke-width: 0.8; fill-opacity: 0.2; stroke-opacity: 0.55; cursor: pointer; }
 .rib.tone-ok { fill: var(--gm-ok); stroke: var(--gm-ok); }
 .rib.tone-info { fill: var(--gm-info); stroke: var(--gm-info); }

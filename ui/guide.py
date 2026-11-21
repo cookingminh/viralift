@@ -183,7 +183,8 @@ PAGE_GUIDES: Dict[str, Dict[str, object]] = {
                 "Opens first. The matrix has one row per record, every record of the run, and one column per "
                 "reference gene, each column linked to its place on the reference bar: a partial record, "
                 "a gene that fails everywhere or an odd record stands out at a glance. An orange corner "
-                "marks a gene that passed but is much shorter than the reference gene. Filter by health, "
+                "marks a gene that passed but is much shorter than the reference gene; hatched cells were "
+                "placed by tblastn, the others come from the record's annotation. Filter by health, "
                 "search, and **Sort** by needs review or by the lowest identity, coverage or length "
                 "against the reference (each record's lowest, or the open gene's)."
             )),

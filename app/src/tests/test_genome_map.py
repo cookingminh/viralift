@@ -163,6 +163,8 @@ def test_component_assets_ship_with_the_ui():
         assert f'"{view}"' in js
     for event in ('"select"', '"focus"', '"pick"'):
         assert event in js
+    # Hatching means "placed by tblastn" and nothing else.
+    assert 'id="gm-blast"' in js and 'id="gm-blast-on"' in js and "gm-hatch" not in js
     assert (Path(genome_map.__file__).parent / "genome_map.css").exists()
 
 
