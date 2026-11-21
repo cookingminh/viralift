@@ -461,6 +461,18 @@ h1, h2, h3, h4 { letter-spacing: -0.015em; text-wrap: balance; }
 .vl-seq .g { color: var(--vl-nt-g); }
 .vl-seq .t { color: var(--vl-nt-t); }
 .vl-seq .more { color: var(--vl-faint); }
+.vl-seq-label { display: block; }
+/* Show all / Show less: an HTML details toggle, so it opens without a rerun */
+.vl-seq-all > summary { list-style: none; cursor: pointer; display: flex; justify-content: space-between; align-items: center; gap: 1rem; margin-bottom: 0.3rem; }
+.vl-seq-all > summary::-webkit-details-marker { display: none; }
+.vl-seq-all > summary .vl-seq-label { margin-bottom: 0; }
+.vl-seq-all > summary:focus-visible { outline: 2px solid var(--vl-primary); outline-offset: 2px; border-radius: 4px; }
+.vl-seq-toggle { font-family: inherit; font-size: 0.7rem; font-weight: 700; letter-spacing: 0.02em; color: var(--vl-primary-text); background: var(--vl-primary-soft); border-radius: 999px; padding: 0.1rem 0.6rem; white-space: nowrap; }
+.vl-seq-all > summary:hover .vl-seq-toggle { background: var(--vl-primary); color: var(--vl-on-primary); }
+.vl-seq-toggle .when-open, .vl-seq-all[open] .vl-seq-toggle .when-closed { display: none; }
+.vl-seq-all[open] .vl-seq-toggle .when-open { display: inline; }
+.vl-seq-all:not([open]) > .vl-seq-full, .vl-seq-all[open] + .vl-seq-preview { display: none; }
+.vl-seq-full { max-height: 24rem; overflow-y: auto; }
 
 /* ── result tables + tabs ───────────────────────────────────────── */
 /* tab markup differs across Streamlit versions: baseweb tabs (≤1.58) and react-aria stTab (1.67+) */

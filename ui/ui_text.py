@@ -228,6 +228,8 @@ UI_TEXT = {
         "processing_errors": "Processing errors",
         "view_map": "Genome map",
         # ── gene detail (Genome map and Features) ─────────────────────
+        "seq_show_all": "Show all",
+        "seq_show_less": "Show less",
         "detail_record": "Record",
         "detail_reference": "Reference",
         "detail_not_placed": "not placed on this record",

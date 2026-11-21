@@ -1,6 +1,7 @@
 # Reusable HTML building blocks for the Streamlit UI. Every dynamic value is
 # passed through html.escape() before it reaches st.html.
 import html
+from itertools import groupby
 import streamlit as st
 from typing import Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 from ui.i18n import _t
@@ -216,20 +217,33 @@ def _chips_html(values: Iterable[object], primary: bool = False) -> str:
     ) + "</div>"
 
 
+def _bases_html(sequence: str) -> str:
+    """Bases coloured by nucleotide; a run of one base shares a span to keep long sequences light."""
+    parts = []
+    for base, run in groupby(sequence, key=str.upper):
+        text = "".join(run)
+        parts.append(f"<span class='{base.lower()}'>{text}</span>" if base in "ACGT" else _esc(text))
+    return "".join(parts)
+
+
 def _sequence_html(sequence: str, limit: int = 360) -> str:
-    shown = sequence[:limit]
-    letters = "".join(
-        f"<span class='{base.lower()}'>{base}</span>" if base.upper() in "ACGT" else _esc(base)
-        for base in shown
-    )
-    more = (
-        f"<span class='more'> … +{len(sequence) - limit:,} nt</span>"
-        if len(sequence) > limit else ""
-    )
+    """The coloured sequence. Past `limit` nt it opens on a preview, and Show all
+    (a plain <details>, so no rerun) swaps in the whole sequence in a scrolling
+    box. There are no line numbers or spaces, so a selection copies clean bases."""
+    label = f"<span class='vl-seq-label'>Sequence · {len(sequence):,} nt</span>"
+    if len(sequence) <= limit:
+        return f"<div class='vl-seq'>{label}<div>{_bases_html(sequence)}</div></div>"
     return (
         "<div class='vl-seq'>"
-        f"<div class='vl-seq-label'>Sequence · {len(sequence):,} nt</div>"
-        f"{letters}{more}</div>"
+        "<details class='vl-seq-all'>"
+        f"<summary>{label}<span class='vl-seq-toggle'>"
+        f"<span class='when-closed'>{_esc(_t('seq_show_all'))}</span>"
+        f"<span class='when-open'>{_esc(_t('seq_show_less'))}</span></span></summary>"
+        f"<div class='vl-seq-full'>{_bases_html(sequence)}</div>"
+        "</details>"
+        f"<div class='vl-seq-preview'>{_bases_html(sequence[:limit])}"
+        f"<span class='more'> … +{len(sequence) - limit:,} nt</span></div>"
+        "</div>"
     )
 
 

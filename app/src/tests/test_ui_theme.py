@@ -38,3 +38,13 @@ def test_theme_css_fills_every_placeholder():
     assert "__DARK_TOKENS__" not in css
     assert f"--vl-primary: {PALETTE['light']['primary']};" in css
     assert f"--vl-primary: {PALETTE['dark']['primary']};" in css
+
+
+def test_theme_css_has_no_markup():
+    # st.html sanitises with DOMPurify, which drops a whole <style> element whose
+    # text contains "<" followed by a letter or "/" (even inside a CSS comment),
+    # leaving the app unstyled. Write "details element", never "<details>".
+    import re
+    from ui.theme import _theme_css
+
+    assert not re.search(r"<[/\w]", _theme_css())
