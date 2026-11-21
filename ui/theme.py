@@ -442,6 +442,21 @@ h1, h2, h3, h4 { letter-spacing: -0.015em; text-wrap: balance; }
 .vl-checks { display: flex; flex-wrap: wrap; gap: 0.4rem 0.8rem; align-items: center; margin-top: 0.9rem; }
 .vl-fact-inline { font-size: 0.8rem; color: var(--vl-muted); }
 .vl-fact-inline b { font-family: var(--vl-mono); font-weight: 600; color: var(--vl-text); }
+/* annotation vs tblastn vs the reference gene, on one axis of the record */
+.vl-cmp { display: grid; gap: 0.4rem; margin: 0.7rem 0 0.2rem; max-width: 36rem; }
+.vl-cmp-title { font-size: 0.68rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--vl-faint); }
+.vl-cmp-row { display: grid; grid-template-columns: 6.4rem minmax(0, 1fr); column-gap: 0.7rem; align-items: center; }
+.vl-cmp-label { display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem; font-size: 0.8rem; font-weight: 600; color: var(--vl-text); }
+.vl-cmp-use { font-size: 0.6rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--vl-primary-text); background: var(--vl-primary-soft); border-radius: 999px; padding: 0 0.4rem; }
+.vl-cmp-track { position: relative; height: 0.75rem; border-radius: 999px; background: var(--vl-surface-2); }
+.vl-cmp-bar { position: absolute; top: 0; bottom: 0; border-radius: 999px; }
+.vl-cmp-bar.is-ref { background: color-mix(in srgb, var(--vl-primary) 30%, var(--vl-surface)); box-shadow: inset 0 0 0 1px var(--vl-primary); }
+.vl-cmp-bar.is-anno { background: var(--vl-muted); }
+.vl-cmp-bar.is-blast { background: var(--vl-info); }
+.vl-cmp-guide { position: absolute; top: -0.25rem; bottom: -0.25rem; border-left: 1.5px dashed var(--vl-primary); opacity: 0.75; }
+.vl-cmp-facts { grid-column: 2; margin-top: 0.15rem; font-family: var(--vl-mono); font-size: 0.72rem; color: var(--vl-muted); overflow-wrap: anywhere; }
+.vl-cmp-axis { display: flex; justify-content: space-between; font-family: var(--vl-mono); font-size: 0.66rem; color: var(--vl-faint); }
+.vl-cmp-note { font-size: 0.8rem; color: var(--vl-text); }
 .vl-seq {
     margin-top: 0.9rem;
     padding: 0.75rem 0.9rem;

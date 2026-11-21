@@ -19,7 +19,6 @@ from ui.components import (
     _card,
     _error_by_record,
     _format_fraction_percent,
-    _format_percent,
     _kv_html,
     _render_callout,
     _render_page_intro,
@@ -478,57 +477,130 @@ def _manual_lift(query_id: str) -> List[LiftedFeature]:
     return lifts[query_id]
 
 
+def _record_placement_of(query_id: str) -> Tuple[int, bool, int]:
+    """(offset, flipped, length) lining this record up with the reference (genome_map.record_placement)."""
+    features = next((fs for rid, fs in st.session_state.all_results or [] if rid == query_id), [])
+    strands = {f["name"]: f.get("strand") or "+" for f in st.session_state.ref_features or []}
+    length = _record_length(query_id)
+    offset, flipped = genome_map.record_placement(features, strands, length)
+    return offset, flipped, length
+
+
+def _reference_on_record(lf: LiftedFeature, query_id: str) -> Optional[Tuple[int, int]]:
+    """Where the reference gene falls on this record, by the record's offset to the reference."""
+    if lf.ref_start is None or lf.ref_end is None:
+        return None
+    offset, flipped, length = _record_placement_of(query_id)
+    start, end = lf.ref_start - offset, lf.ref_end - offset
+    return (length - end + 1, length - start + 1) if flipped else (start, end)
+
+
+def _compare_html(
+    query_id: str, gene: str, annotated: LiftedFeature, tblastn: Optional[LiftedFeature], in_use: str,
+) -> str:
+    """The reference gene, the record's annotation and tblastn's placement as
+    bars on one axis of the record, with the reference's ends marked on each."""
+    reference = _reference_on_record(annotated, query_id)
+    rows: List[Tuple[str, str, Tuple[int, int], str, bool]] = []  # label, kind, span, facts, in use
+    ref_length = annotated.ref_end - annotated.ref_start + 1
+
+    def facts(row: LiftedFeature) -> str:
+        length = _feature_length(row)
+        parts = [f"{row.query_start:,}–{row.query_end:,}", f"{length:,} nt", _t("check_share", share=f"{length / ref_length:.0%}")]
+        if row.identity is not None:
+            parts.append(_t("check_identity", identity=f"{row.identity:.1f}%"))
+        return " · ".join(parts)
+
+    if reference:
+        ref_facts = f"{annotated.ref_start:,}–{annotated.ref_end:,} · {ref_length:,} nt"
+        if reference != (annotated.ref_start, annotated.ref_end):
+            ref_facts += " · " + _t("check_projected", start=f"{reference[0]:,}", end=f"{reference[1]:,}")
+        rows.append((_t("check_row_reference"), "ref", reference, ref_facts, False))
+    rows.append((_t("check_row_annotation"), "anno", (annotated.query_start, annotated.query_end), facts(annotated), in_use == "annotation"))
+    if tblastn is not None:
+        rows.append((_t("check_row_tblastn"), "blast", (tblastn.query_start, tblastn.query_end), facts(tblastn), in_use == "tblastn"))
+
+    lo = min(span[0] for _, _, span, _, _ in rows)
+    hi = max(span[1] for _, _, span, _, _ in rows)
+    pad = max(15, (hi - lo) * 0.06)
+    lo, hi = lo - pad, hi + pad
+
+    def pos(value: float) -> float:
+        return (value - lo) / (hi - lo) * 100
+
+    guides = "".join(
+        f"<i class='vl-cmp-guide' style='left:{pos(edge):.2f}%'></i>"
+        for edge in ((reference[0], reference[1] + 1) if reference else ())
+    )
+    body = "".join(
+        "<div class='vl-cmp-row'>"
+        f"<span class='vl-cmp-label'>{html.escape(label)}"
+        + (f"<span class='vl-cmp-use'>{html.escape(_t('check_in_use'))}</span>" if used else "")
+        + "</span>"
+        f"<div class='vl-cmp-track'>{guides}<span class='vl-cmp-bar is-{kind}' "
+        f"style='left:{pos(span[0]):.2f}%;width:{max(0.8, pos(span[1] + 1) - pos(span[0])):.2f}%'></span></div>"
+        f"<span class='vl-cmp-facts'>{html.escape(text)}</span></div>"
+        for label, kind, span, text, used in rows
+    )
+    axis = (
+        "<div class='vl-cmp-row'><span></span><div class='vl-cmp-axis'>"
+        f"<span>{max(1, round(lo)):,}</span><span>{round(hi):,}</span></div></div>"
+    )
+    note = ""
+    if tblastn is not None:
+        starts = annotated.query_start - tblastn.query_start
+        ends = annotated.query_end - tblastn.query_end
+        parts = [
+            _t(key, n=f"{abs(delta):,}", direction=_t("check_later" if delta > 0 else "check_earlier"))
+            for key, delta in (("check_delta_start", starts), ("check_delta_end", ends)) if delta
+        ]
+        note = _t("check_delta", parts=_t("check_and").join(parts)) if parts else _t("check_delta_same", gene=gene)
+        note = f"<div class='vl-cmp-note'>{html.escape(note)}</div>"
+    return (
+        "<div class='vl-cmp'>"
+        f"<div class='vl-cmp-title'>{html.escape(_t('check_compare_title', gene=gene))}</div>"
+        f"{body}{axis}{note}</div>"
+    )
+
+
 def _render_annotation_check(query_id: str, lf: LiftedFeature, gene: str) -> None:
-    """Annotation vs tblastn for a gene taken from the record's annotation, with
-    the switch between them."""
+    """Annotation vs tblastn for a gene taken from the record's annotation: the
+    two placements drawn against the reference gene, and the switch between them."""
     annotated = lf.annotation if lf.annotation is not None else lf
     if annotated.method != "direct" or annotated.ref_start is None or lf.status == NOT_IN_SEQUENCE:
         return
     lines = []
-    if annotated.annotation_check:
-        lines.append(_t(
-            "check_annotation_line",
-            start=f"{annotated.query_start:,}",
-            end=f"{annotated.query_end:,}",
-            length=_span_length(annotated),
-            ref_length=f"{annotated.ref_end - annotated.ref_start + 1:,}",
-            coverage=_format_fraction_percent(annotated.coverage),
-            identity=_format_percent(annotated.identity),
-        ))
-        if annotated.best_match:
-            lines.append(_t("check_best_match", gene=annotated.best_match, name=gene))
+    if annotated.annotation_check and annotated.best_match:
+        lines.append(_t("check_best_match", gene=annotated.best_match, name=gene))
 
     run_row = _run_row(query_id, lf.name)
     action: Optional[Tuple[str, Optional[LiftedFeature]]] = None  # (label, row to use)
     check_button = False
+    tblastn_row: Optional[LiftedFeature] = None
+    in_use = "annotation"
     if lf.annotation is not None:
-        lines.append(_t("check_using_tblastn", start=f"{lf.query_start:,}", end=f"{lf.query_end:,}", length=_span_length(lf)))
+        tblastn_row, in_use = lf, "tblastn"
         back = None if run_row is not None and run_row.annotation is None else lf.annotation
         action = (_t("use_annotation"), back)
     elif run_row is not None and run_row.annotation is not None:
-        lines.append(_t(
-            "check_using_annotation", gene=gene, start=f"{run_row.query_start:,}",
-            end=f"{run_row.query_end:,}", length=_span_length(run_row), status=run_row.status,
-        ))
+        tblastn_row = run_row
         action = (_t("use_tblastn"), None)
     elif query_id in st.session_state.manual_lifts:
         alternative = next((f for f in _manual_lift(query_id) if f.name == lf.name), None)
         if alternative is None or alternative.status not in PASS_STATUSES or alternative.query_start is None:
             lines.append(_t("check_tblastn_none", gene=gene, status=alternative.status if alternative else "no_hit"))
-        elif (alternative.query_start, alternative.query_end) == (lf.query_start, lf.query_end):
-            lines.append(_t("check_tblastn_same", gene=gene, status=alternative.status))
         else:
-            lines.append(_t(
-                "check_using_annotation", gene=gene, start=f"{alternative.query_start:,}",
-                end=f"{alternative.query_end:,}", length=_span_length(alternative), status=alternative.status,
-            ))
-            action = (_t("use_tblastn"), dataclasses.replace(
-                alternative,
-                source_name=lf.source_name,
-                annotation_check=lf.annotation_check,
-                best_match=lf.best_match,
-                annotation=lf,
-            ))
+            tblastn_row = alternative
+            if (alternative.query_start, alternative.query_end) == (lf.query_start, lf.query_end):
+                lines.append(_t("check_tblastn_same", gene=gene, status=alternative.status))
+            else:
+                action = (_t("use_tblastn"), dataclasses.replace(
+                    alternative,
+                    source_name=lf.source_name,
+                    annotation_check=lf.annotation_check,
+                    best_match=lf.best_match,
+                    annotation=lf,
+                ))
     else:
         check_button = True
 
@@ -539,6 +611,7 @@ def _render_annotation_check(query_id: str, lf: LiftedFeature, gene: str) -> Non
         + (f" · {html.escape(verdict)}" if verdict else "")
         + "".join(f"<br>{html.escape(line)}" for line in lines)
         + "</div>"
+        + _compare_html(query_id, gene, annotated, tblastn_row, in_use)
     )
     if action:
         label, row = action

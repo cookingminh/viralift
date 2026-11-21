@@ -220,6 +220,22 @@ def test_matrix_sorts(prrs_run, sort):
 
 
 @requires_sample_data
+def test_detail_panel_compares_annotation_tblastn_and_reference(prrs_run):
+    # _replaced: tblastn ends 30 nt before the annotation and is the row in use.
+    state, record_id, lifted = _replaced(prrs_run)
+    at = AppTest.from_function(_detail_script, default_timeout=180)
+    for key, value in {**state, "detail_record": record_id, "detail_row": lifted}.items():
+        at.session_state[key] = value
+    at.run()
+    _assert_clean(at)
+    page = " ".join(element.proto.body for element in at.get("html"))
+    assert page.count("vl-cmp-row") == 4  # reference, annotation, tblastn, axis
+    assert "is-ref" in page and "is-anno" in page and "is-blast" in page
+    assert page.index("is-blast") > page.index("vl-cmp-use")  # tblastn is marked in use
+    assert "The annotation ends 30 nt later than tblastn" in page
+
+
+@requires_sample_data
 def test_detail_panel_checks_an_annotated_gene_with_tblastn(prrs_run):
     record_id, features = next((rid, fs) for rid, fs in prrs_run["all_results"] if fs and fs[0].method == "direct")
     at = AppTest.from_function(_detail_script, default_timeout=180)
