@@ -191,6 +191,23 @@ def _run_views(all_results: Results) -> Tuple[Results, Results]:
     return chosen, display
 
 
+def _per_run(name: str, build, *extra):
+    """build() once per run, annotation choice and `extra`, kept in session state.
+
+    A click on the map reruns the whole page; with thousands of records the
+    stats, record health and export tables would otherwise be rebuilt every
+    time, which made each click feel slow. The run's results are compared by
+    identity, so a new run never reuses another run's values."""
+    results = st.session_state.all_results
+    key = (st.session_state.get("annotation_choice_version", 0), extra)
+    cached = st.session_state.get(name)
+    if cached is not None and cached[0] is results and cached[1] == key:
+        return cached[2]
+    value = build()
+    st.session_state[name] = (results, key, value)
+    return value
+
+
 def _display_results(all_results: Results) -> Results:
     return _run_views(all_results)[1]
 
@@ -737,14 +754,29 @@ def _render_record_summary(record_id: str, features: List[LiftedFeature], length
         st.caption(_t("map_pick_gene"))
 
 
+def _map_context(display_results: Results, error_map: Dict[str, str]) -> Dict:
+    """What the map reads about every record, the same until the run or a choice changes."""
+    health = {query_id: _record_health(query_id, features, error_map) for query_id, features in display_results}
+    return {
+        "records": {record.id: record for record in st.session_state.query_records or []},
+        "features_of": dict(display_results),
+        "record_ids": [query_id for query_id, _ in display_results],
+        "health": health,
+        "counts": Counter(health.values()),
+        # Worth a look: records to review, or with a passing gene far shorter than its reference gene.
+        "attention": [
+            query_id for query_id, features in display_results
+            if health[query_id] == "needs_review" or any(genome_map.is_much_shorter(f) for f in features)
+        ],
+    }
+
+
 def _render_map_view(display_results: Results, error_map: Dict[str, str], ref_name_map: Optional[Dict[str, str]]) -> None:
     label_of = _gene_labeler(ref_name_map)
     ref = _map_reference(ref_name_map)
-    records = {record.id: record for record in st.session_state.query_records or []}
-    features_of = dict(display_results)
-    record_ids = [query_id for query_id, _ in display_results]
-    health = {query_id: _record_health(query_id, features, error_map) for query_id, features in display_results}
-    counts = Counter(health.values())
+    context = _per_run("map_context", lambda: _map_context(display_results, error_map))
+    records, features_of, record_ids = context["records"], context["features_of"], context["record_ids"]
+    health, counts = context["health"], context["counts"]
 
     with _card("map_overview"):
         with st.container(horizontal=True, horizontal_alignment="distribute", vertical_alignment="center"):
@@ -784,24 +816,24 @@ def _render_map_view(display_results: Results, error_map: Dict[str, str], ref_na
         # Building ~100k cells takes a moment, so the rows are kept until the run,
         # a choice, the filter, the search or the sort changes; a click only
         # changes the selection, which is added on top.
-        cache_key = (
-            id(display_results), st.session_state.get("annotation_choice_version", 0), show, search, sort, sort_gene,
-        )
-        cached = st.session_state.get("map_matrix_cache")
-        if cached and cached[0] == cache_key:
-            visible, payload = cached[1], cached[2]
-        else:
-            visible = _sorted_records(
+        def matrix():
+            ordered = _sorted_records(
                 [
                     query_id for query_id in record_ids
                     if (show == "all" or health[query_id] == show) and (not search or search in query_id.lower())
                 ],
                 sort, sort_gene, features_of, health,
             )
-            payload = genome_map.matrix_payload(
-                ref, [(query_id, features_of[query_id], health[query_id]) for query_id in visible], HEALTH_META,
+            return ordered, genome_map.matrix_payload(
+                ref, [(query_id, features_of[query_id], health[query_id]) for query_id in ordered], HEALTH_META,
             )
-            st.session_state.map_matrix_cache = (cache_key, visible, payload)
+
+        # Building ~100k cells takes a moment, so the rows are kept until the run,
+        # a choice, the filter, the search or the sort changes; a click only
+        # changes the selection, which is added on top.
+        visible, payload = _per_run(
+            "map_matrix_cache", matrix, show, search, sort, sort_gene, st.session_state.use_ref_names,
+        )
         with title_slot:
             _render_section_title(
                 _t("map_matrix_title"),
@@ -847,13 +879,7 @@ def _render_map_view(display_results: Results, error_map: Dict[str, str], ref_na
                           on_click=_step_record, args=(steps, -1), disabled=len(steps) < 2)
                 st.button(_t("map_next"), icon=":material/chevron_right:", key="map_next",
                           on_click=_step_record, args=(steps, 1), disabled=len(steps) < 2)
-        attention = [
-            query_id for query_id in record_ids
-            if query_id != record_id and (
-                health[query_id] == "needs_review"
-                or any(genome_map.is_much_shorter(f) for f in features_of[query_id])
-            )
-        ]
+        attention = [query_id for query_id in context["attention"] if query_id != record_id]
         if attention:
             st.pills(
                 _t("map_attention", count=len(attention)),
@@ -1001,16 +1027,15 @@ def _render_fasta_name_controls() -> Dict:
 
 def _render_export_view(
     rows: List[FeatureRow],
-    df: pd.DataFrame,
+    all_results: Results,
     ref_name_map: Optional[Dict[str, str]],
 ) -> None:
     with _card("tsv"):
         _render_section_title(_t("tsv"), _t("download_table"))
-        tsv_canonical = df.drop(columns=["sequence"]).to_csv(sep="\t", index=False)
-        df_raw = df.copy()
-        has_source = df_raw["source_name"].notna() & (df_raw["source_name"] != "")
-        df_raw.loc[has_source, "name"] = df_raw.loc[has_source, "source_name"]
-        tsv_raw = df_raw.drop(columns=["sequence"]).to_csv(sep="\t", index=False)
+        # Exports use the engine's statuses; the views use the display ones.
+        tsv_canonical, tsv_raw = _per_run(
+            "results_tsv", lambda: _tsv_tables(all_results, ref_name_map), st.session_state.use_ref_names,
+        )
         with st.container(horizontal=True):
             st.download_button(
                 _t("download_display"),
@@ -1206,21 +1231,59 @@ def _render_export_view(
                 st.caption(_t("fasta_names_renamed", count=renamed))
 
 
-def _render_check_banner(rows: List[FeatureRow]) -> None:
+def _run_numbers(display_results: Results, ref_name_map: Optional[Dict[str, str]]) -> Dict:
+    """The page header's numbers and the gene rows, the same until the run or a choice changes."""
+    rows: List[FeatureRow] = [
+        (query_id, lf, ref_name_map.get(lf.name, lf.name) if ref_name_map else lf.name)
+        for query_id, features in display_results
+        for lf in features
+    ]
+    summary = summarize_counts(display_results)
+    absent = summary.pop(NOT_IN_SEQUENCE, 0)
+    method_counts: Dict[str, int] = {}
+    for _, lf, _ in rows:
+        if lf.status != NOT_IN_SEQUENCE:
+            method_counts[lf.method or "unknown"] = method_counts.get(lf.method or "unknown", 0) + 1
     checked = [lf for _, lf, _ in rows if lf.annotation_check]
-    if not checked:
+    return {
+        "rows": rows,
+        "summary": summary,
+        "absent": absent,
+        "in_sequence": len(rows) - absent,
+        "partial_records": sum(
+            1 for _, features in display_results if any(f.status == NOT_IN_SEQUENCE for f in features)
+        ),
+        "passing": sum(1 for _, lf, _ in rows if lf.status in GOOD_STATUSES),
+        "review": sum(1 for _, lf, _ in rows if lf.status in REVIEW_STATUSES),
+        "method_counts": method_counts,
+        "check_counts": Counter(lf.annotation_check for lf in checked),
+        "checked": len(checked),
+        "replaced": sum(1 for lf in checked if lf.annotation is not None),
+    }
+
+
+def _tsv_tables(all_results: Results, ref_name_map: Optional[Dict[str, str]]) -> Tuple[str, str]:
+    """The two TSV downloads (display names, raw source names)."""
+    df = _results_to_df(all_results, ref_name_map)
+    canonical = df.drop(columns=["sequence"]).to_csv(sep="\t", index=False)
+    has_source = df["source_name"].notna() & (df["source_name"] != "")
+    df.loc[has_source, "name"] = df.loc[has_source, "source_name"]
+    return canonical, df.drop(columns=["sequence"]).to_csv(sep="\t", index=False)
+
+
+def _render_check_banner(numbers: Dict) -> None:
+    if not numbers["checked"]:
         return
-    counts = Counter(lf.annotation_check for lf in checked)
+    counts, replaced = numbers["check_counts"], numbers["replaced"]
     issues = "".join(
         f" · {_t('annotation_check_issue', count=f'{counts[v]:,}', label=_t(f'check_{v}').lower())}"
         for v in ("partial", "fragment", "low_identity", "overlong") if counts[v]
     )
-    replaced = sum(1 for lf in checked if lf.annotation is not None)
     _render_callout(
         _t(
             "annotation_check_banner",
             confirmed=f"{counts['confirmed']:,}",
-            checked=f"{len(checked):,}",
+            checked=f"{numbers['checked']:,}",
             issues=html.escape(issues),
             replaced=_t("annotation_check_replaced", count=f"{replaced:,}") if replaced else "",
         ),
@@ -1230,7 +1293,6 @@ def _render_check_banner(rows: List[FeatureRow]) -> None:
 
 def stage_results():
     all_results, display_results = _run_views(st.session_state.all_results)
-    summary     = summarize_counts(display_results)
     run_errors  = st.session_state.run_errors or []
     error_map   = _error_by_record(run_errors)
 
@@ -1241,13 +1303,8 @@ def stage_results():
         if st.session_state.use_ref_names else None
     )
 
-    # Exports use the engine's statuses; the views use the display ones.
-    df = _results_to_df(all_results, ref_name_map)
-    rows: List[FeatureRow] = [
-        (query_id, lf, ref_name_map.get(lf.name, lf.name) if ref_name_map else lf.name)
-        for query_id, features in display_results
-        for lf in features
-    ]
+    numbers = _per_run("results_numbers", lambda: _run_numbers(display_results, ref_name_map), st.session_state.use_ref_names)
+    rows: List[FeatureRow] = numbers["rows"]
 
     # ── header ───────────────────────────────────────────────────
     _render_page_intro(
@@ -1269,18 +1326,14 @@ def stage_results():
     # ── run health ────────────────────────────────────────────────
     total_records = len(all_results)
     failed_records = len(run_errors)
-    absent_features = summary.pop(NOT_IN_SEQUENCE, 0)
-    in_sequence_features = len(rows) - absent_features
-    partial_records = sum(
-        1 for _, features in display_results if any(f.status == NOT_IN_SEQUENCE for f in features)
-    )
-    passing_features = sum(1 for _, lf, _ in rows if lf.status in GOOD_STATUSES)
-    review_features = sum(1 for _, lf, _ in rows if lf.status in REVIEW_STATUSES)
+    summary = numbers["summary"]
+    absent_features = numbers["absent"]
+    in_sequence_features = numbers["in_sequence"]
+    partial_records = numbers["partial_records"]
+    passing_features = numbers["passing"]
+    review_features = numbers["review"]
     pass_rate = (passing_features / in_sequence_features * 100) if in_sequence_features else 0.0
-    method_counts: Dict[str, int] = {}
-    for _, lf, _ in rows:
-        if lf.status != NOT_IN_SEQUENCE:
-            method_counts[lf.method or "unknown"] = method_counts.get(lf.method or "unknown", 0) + 1
+    method_counts = numbers["method_counts"]
 
     _render_stats([
         {
@@ -1311,7 +1364,7 @@ def stage_results():
         },
     ])
     _render_status_bar(summary)
-    _render_check_banner(rows)
+    _render_check_banner(numbers)
     if partial_records:
         _render_callout(
             _t(
@@ -1336,7 +1389,7 @@ def stage_results():
     )
     if export_tab.open:
         with export_tab:
-            _render_export_view(rows, df, ref_name_map)
+            _render_export_view(rows, all_results, ref_name_map)
     else:
         with map_tab:
             _render_map_view(display_results, error_map, ref_name_map)

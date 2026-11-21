@@ -213,7 +213,7 @@ def test_matrix_sorts(prrs_run, sort):
     at = _app(stage="results", map_sort=sort, **prrs_run)
     at.run()
     _assert_clean(at)
-    order = at.session_state["map_matrix_cache"][1]
+    order = at.session_state["map_matrix_cache"][2][0]
     assert sorted(order) == sorted(record_id for record_id, _ in prrs_run["all_results"])
     if sort == "order":
         assert order == [record_id for record_id, _ in prrs_run["all_results"]]
