@@ -512,11 +512,22 @@ function activate(root, el) {
     const row = el.closest("[data-rec]");
     if (row) {
       const cell = el.closest("[data-gene]");
+      // Show the selection now; the rerun that brings the record map follows.
+      d.selected = row.dataset.rec;
+      root.gm.matrixSelected = d.selected;
+      root.gm.matrixWindow = null;
+      drawMatrixRows(root);
       emit(root, "select", { record: row.dataset.rec, gene: cell ? cell.dataset.gene : null });
       return true;
     }
   }
-  if (d.view === "tracks" && el.dataset.gene) { emit(root, "select", el.dataset.gene); return true; }
+  if (d.view === "tracks" && el.dataset.gene) {
+    // Same toggle as Python's: a second click on the selected gene closes it.
+    d.selected = d.selected === el.dataset.gene ? null : el.dataset.gene;
+    draw(root);
+    emit(root, "select", el.dataset.gene);
+    return true;
+  }
   return false;
 }
 
