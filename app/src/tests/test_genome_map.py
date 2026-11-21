@@ -7,6 +7,7 @@ from ui import genome_map
 from ui.genome_map import (
     CELL_CODES,
     NO_CELL,
+    TBLASTN_CODES,
     evidence_payload,
     is_much_shorter,
     matrix_payload,
@@ -88,12 +89,31 @@ def test_matrix_rows_are_compact():
     statuses = [row[0] for row in payload["statuses"]]
     record_id, health, codes, extras, passed, total = payload["rows"][0]
     assert (record_id, health) == ("Q.1", "partial")
-    # One character per gene: the status's index in the payload's status table.
-    assert [statuses[CELL_CODES.index(code)] for code in codes] == ["ok", "not_in_sequence"]
+    # One character per gene: the status's index in the payload's status table,
+    # upper case when tblastn placed the gene (A is a tblastn lift here).
+    assert codes[0] == TBLASTN_CODES[statuses.index("ok")]
+    assert codes[1] == CELL_CODES[statuses.index("not_in_sequence")]  # not placed: no outline
     assert extras == [["3B1", statuses.index("not_in_reference")]]
     # A gene outside the record is neither passed nor counted.
     assert (passed, total) == (1, 1)
     assert payload["health"] == {"partial": ["Partial", "info"]}
+
+
+def test_matrix_marks_the_genes_tblastn_placed_in_an_annotated_record():
+    # Annotated record whose NS4A-like gene B was missing and lifted with tblastn.
+    features = [
+        lf("A", 101, 400, 101, 400, method="direct"),
+        lf("B", 501, 900, 501, 900, method="tblastn"),
+    ]
+    payload = matrix_payload(REF, [("Q.1", features, "passed")], {})
+    statuses = [row[0] for row in payload["statuses"]]
+    codes = payload["rows"][0][2]
+    assert codes == CELL_CODES[statuses.index("ok")] + TBLASTN_CODES[statuses.index("ok")]
+
+
+def test_every_status_fits_both_cell_alphabets():
+    from app.src.lifting.base import ALL_STATUSES
+    assert len(ALL_STATUSES) + 1 <= min(len(CELL_CODES), len(TBLASTN_CODES))  # + not_in_sequence
 
 
 def test_matrix_sends_every_record_and_marks_short_and_missing_genes():

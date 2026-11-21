@@ -262,7 +262,8 @@ UI_TEXT = {
         ),
         "map_matrix_legend": (
             "Green: OK · blue: OK after an adjustment · orange: needs review · red: no hit · "
-            "dashed: outside a partial record · orange corner: much shorter than the reference gene · "
+            "dashed: outside a partial record · blue outline: placed by tblastn (the rest come from "
+            "the record's annotation) · orange corner: much shorter than the reference gene · "
             "+n: annotated names the reference does not have."
         ),
         "map_sort": "Sort",
@@ -294,8 +295,8 @@ UI_TEXT = {
         "map_tracks_legend": (
             "Ribbons join each reference gene to where it landed on this record. Drag to pan, "
             "pinch or Ctrl + scroll to zoom, double-click to zoom in. For CDS the lanes are reading "
-            "frames +1, +2, +3. A dashed orange bar under the record is the raw tblastn hit before "
-            "a boundary rescue moved it."
+            "frames +1, +2, +3. A blue outline marks a gene placed by tblastn. A dashed orange bar "
+            "under the record is the raw tblastn hit before a boundary rescue moved it."
         ),
         "map_short": "Passes, but is {share} of the reference gene's length.",
         "map_short_edge": "{share} of the reference gene's length: the record ends inside this gene.",

@@ -26,9 +26,12 @@ COMPONENT_NAME = "viralift_genome_map"
 # map. Display only: statuses and exports are left as the engine set them.
 SHORT_FRACTION = 0.8
 # Matrix cells are sent as one character per gene: the index of the cell's
-# status in the payload's status table, or "-" when the record has no row for
-# that gene. The browser draws only the rows in view, so every record is sent.
+# status in the payload's status table, from CELL_CODES, or from TBLASTN_CODES
+# when tblastn placed the gene (the map outlines those in blue), or "-" when the
+# record has no row for that gene. The browser draws only the rows in view, so
+# every record is sent.
 CELL_CODES = "0123456789abcdefghijklmnopqrstuvwxyz"
+TBLASTN_CODES = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 NO_CELL = "-"
 # What the matrix can be sorted by (results.py offers them).
 SORT_METRICS = ("identity", "coverage", "length")
@@ -108,6 +111,12 @@ def _on_reference(lf: LiftedFeature) -> bool:
     return lf.ref_start is not None and lf.ref_end is not None
 
 
+def placed_by_tblastn(lf: LiftedFeature) -> bool:
+    """tblastn put this gene on the record: a whole lifted record, a gene the
+    annotation was missing, or a tblastn row chosen over a failing annotation."""
+    return lf.method == "tblastn" and _located(lf)
+
+
 def is_much_shorter(lf: LiftedFeature, fraction: float = SHORT_FRACTION) -> bool:
     """A passing gene placed on the record that is far shorter than its reference gene.
 
@@ -173,8 +182,9 @@ def matrix_rows(
     """One compact row per (record_id, features, health key):
     [record id, health key, cell codes, extras, passed, in sequence, (short columns)].
 
-    Cell codes hold one character per column (CELL_CODES index into the status
-    table, NO_CELL when the record has no row for that gene). Extras are the
+    Cell codes hold one character per column: the status's index into the
+    status table, from TBLASTN_CODES when tblastn placed that gene and from
+    CELL_CODES otherwise, or NO_CELL when the record has no row for that gene. Extras are the
     record's genes without a reference counterpart, [name, status index]. The
     last item, only present when needed, lists the columns whose gene passed
     but is much shorter than the reference gene.
@@ -188,7 +198,7 @@ def matrix_rows(
             if lf is None:
                 codes.append(NO_CELL)
                 continue
-            codes.append(CELL_CODES[statuses(lf.status)])
+            codes.append((TBLASTN_CODES if placed_by_tblastn(lf) else CELL_CODES)[statuses(lf.status)])
             if is_much_shorter(lf):
                 short.append(index)
         extras = [[lf.name, statuses(lf.status)] for lf in features if not _on_reference(lf)]

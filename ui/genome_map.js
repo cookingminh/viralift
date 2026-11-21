@@ -108,8 +108,16 @@ function draw(root) {
 }
 
 const statusOf = (d, i) => (d.statuses && d.statuses[i]) || ["", "", "warn"];
-// Same alphabet as CELL_CODES in ui/genome_map.py.
+// Same alphabets as CELL_CODES / TBLASTN_CODES in ui/genome_map.py: a cell's
+// status index, the second alphabet when tblastn placed the gene.
 const CELL_CODES = "0123456789abcdefghijklmnopqrstuvwxyz";
+const TBLASTN_CODES = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+function decodeCell(ch) {
+  const si = CELL_CODES.indexOf(ch);
+  if (si >= 0) return { si, blast: false };
+  const bi = TBLASTN_CODES.indexOf(ch);
+  return bi >= 0 ? { si: bi, blast: true } : null;
+}
 
 // ── matrix ────────────────────────────────────────────────────────────
 // Two SVGs in one scroll box: the header (ruler, reference bar, links, gene
@@ -211,10 +219,10 @@ function drawMatrixRows(root) {
     s += `<text class="row-label" x="21" y="${y + rowH / 2 + 4}" tabindex="0" role="button" aria-label="Open ${esc(id)}">${esc(id)}</text>`;
     for (let i = 0; i < codes.length; i++) {
       const x = r1(x0 + i * colW + 3);
-      const si = CELL_CODES.indexOf(codes[i]);
-      if (si < 0) { s += `<rect class="cell c-none" x="${x}" y="${y + 4}" width="${r1(w)}" height="${rowH - 8}" rx="3"/>`; continue; }
-      const [key, , tone] = statusOf(d, si);
-      s += `<rect class="cell c-${esc(key === d.absent ? "absent" : tone)}" x="${x}" y="${y + 4}" width="${r1(w)}" height="${rowH - 8}" rx="3" data-gene="${esc(d.columns[i])}" data-tip="cell|${ri}|${i}"/>`;
+      const cell = decodeCell(codes[i]);
+      if (!cell) { s += `<rect class="cell c-none" x="${x}" y="${y + 4}" width="${r1(w)}" height="${rowH - 8}" rx="3"/>`; continue; }
+      const [key, , tone] = statusOf(d, cell.si);
+      s += `<rect class="cell c-${esc(key === d.absent ? "absent" : tone)}${cell.blast ? " is-blast" : ""}" x="${x}" y="${y + 4}" width="${r1(w)}" height="${rowH - 8}" rx="3" data-gene="${esc(d.columns[i])}" data-tip="cell|${ri}|${i}"/>`;
       if (short && short.includes(i)) s += `<path class="short-flag" d="M${r1(x + w - 7)},${y + 4}h7v7z"/>`;
     }
     if (extras.length) s += `<text class="extra-count" x="${r1(cx(g.ncols - 1))}" y="${y + rowH / 2 + 4}" text-anchor="middle" data-tip="extra|${ri}">+${extras.length}</text>`;
@@ -327,7 +335,7 @@ function drawTracks(root, svg, bar, W, d) {
     const xa = sx(it.s + off), xb = sx(it.e + 1 + off);
     const strand = G.flip ? (f.strand === "-" ? "+" : "-") : f.strand;
     const tone = toneOf(f);
-    s += `<path class="q-gene tone-${esc(tone)}${extra ? " is-extra" : ""}${sel === f.name ? " is-selected" : ""}" d="${arrowPath(xa, xb, y, laneH, strand)}" data-gene="${esc(f.name)}" data-tip="feat|${f.i}"/>`;
+    s += `<path class="q-gene tone-${esc(tone)}${extra ? " is-extra" : ""}${f.method === "tblastn" ? " is-blast" : ""}${sel === f.name ? " is-selected" : ""}" d="${arrowPath(xa, xb, y, laneH, strand)}" data-gene="${esc(f.name)}" data-tip="feat|${f.i}"/>`;
     if (fits(f.label, xb - xa)) s += `<text class="q-label${extra || tone === "neutral" ? " is-extra" : ""}" x="${r1((xa + xb) / 2)}" y="${y + 12.5}" text-anchor="middle" data-gene="${esc(f.name)}">${esc(f.label)}</text>`;
     if (f.short) s += `<path class="short-flag" d="M${r1(xb - 7)},${y}h7v7z" data-gene="${esc(f.name)}"/>`;
   });
@@ -437,7 +445,7 @@ function tipHtml(root, spec) {
     const r = d.rows[+parts[1]], i = +parts[2], name = d.columns[i];
     const g = d.ref.genes.find((x) => x[0] === name);
     const short = r[6] && r[6].includes(i);
-    return `<div class="t">${esc(g ? g[4] : name)} · <span class="sub">${esc(r[0])}</span></div><div>${badge(CELL_CODES.indexOf(r[2][i]))}</div>` +
+    return `<div class="t">${esc(g ? g[4] : name)} · <span class="sub">${esc(r[0])}</span></div><div>${badge(decodeCell(r[2][i]).si)}${decodeCell(r[2][i]).blast ? ` <span class="sub">placed by tblastn</span>` : ""}</div>` +
       (g ? row("reference", `${nf(g[1])}–${nf(g[2])} · ${nf(g[2] - g[1] + 1)} nt`) : "") +
       (short ? `<div class="warn">Much shorter than the reference gene</div>` : "") +
       `<div class="sub">Click to open this gene</div>`;

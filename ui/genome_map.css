@@ -110,6 +110,9 @@
 .cell.c-absent { fill: transparent; stroke: var(--gm-border-strong); stroke-dasharray: 2 2; }
 .cell.c-none { fill: transparent; }
 .cell[data-tip]:hover { stroke: var(--gm-text); stroke-width: 1.5; stroke-dasharray: none; }
+/* placed by tblastn: a blue outline with a soft glow, on the matrix and the record map */
+.cell.is-blast { stroke: var(--gm-info); stroke-width: 1.5; filter: drop-shadow(0 0 2.5px var(--gm-info)); }
+.q-gene.is-blast { stroke: var(--gm-info); stroke-width: 1.6; filter: drop-shadow(0 0 3px var(--gm-info)); }
 .short-flag { fill: var(--gm-warn); pointer-events: none; }
 .dot.tone-ok { fill: var(--gm-ok); }
 .dot.tone-info { fill: var(--gm-info); }
